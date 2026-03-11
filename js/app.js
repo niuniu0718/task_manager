@@ -1,8 +1,32 @@
-// 应用主逻辑
+// 应用主逻辑 - 性能优化版
 const App = {
     tasks: [],
     currentFilter: 'all',
     taskToDelete: null,
+    taskToEdit: null,
+    lastRenderTime: 0,
+    renderCache: {},
+
+    // 节流函数
+    throttle(func, delay) {
+        let lastCall = 0;
+        return function(...args) {
+            const now = Date.now();
+            if (now - lastCall >= delay) {
+                lastCall = now;
+                func.apply(this, args);
+            }
+        };
+    },
+
+    // 防抖函数
+    debounce(func, delay) {
+        let timeoutId;
+        return function(...args) {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => func.apply(this, args), delay);
+        };
+    },
 
     // 初始化应用
     init() {
@@ -11,6 +35,7 @@ const App = {
         ChartManager.init();
         this.render();
         this.bindEvents();
+        // 改为每5分钟刷新一次，减少CPU占用
         this.startAutoRefresh();
     },
 
@@ -126,16 +151,9 @@ const App = {
 
     // 添加任务
     addTask() {
-        console.log('addTask called');
         const contentInput = document.getElementById('taskContent');
         const ownerInput = document.getElementById('taskOwner');
         const deadlineInput = document.getElementById('taskDeadline');
-
-        console.log('Form inputs:', {
-            content: contentInput?.value,
-            owner: ownerInput?.value,
-            deadline: deadlineInput?.value
-        });
 
         const content = contentInput.value.trim();
         const owner = ownerInput.value.trim();
@@ -159,21 +177,14 @@ const App = {
             createdAt: new Date().toISOString()
         };
 
-        console.log('Task to add:', task);
-        const result = TaskStorage.addTask(task);
-        console.log('Add task result:', result);
-
-        if (result) {
+        if (TaskStorage.addTask(task)) {
             this.tasks = TaskStorage.getTasks();
-            console.log('All tasks after add:', this.tasks);
             contentInput.value = '';
             ownerInput.value = '';
             document.getElementById('taskDepartment').value = '';
             deadlineInput.value = '';
             document.getElementById('taskProgress').value = '';
             this.render();
-        } else {
-            alert('添加任务失败，请重试');
         }
     },
 
@@ -254,14 +265,16 @@ const App = {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
     },
 
-    // 渲染整个界面
-    render() {
-        this.updateMetrics();
-        this.updateOwnerTable();
-        this.updateCharts();
-        this.renderTaskList();
-        this.updateOwnerDatalist();
-    },
+    // 渲染整个界面 - 使用节流优化
+    render: this.throttle(function() {
+        requestAnimationFrame(() => {
+            this.updateMetrics();
+            this.updateOwnerTable();
+            this.updateCharts();
+            this.renderTaskList();
+            this.updateOwnerDatalist();
+        });
+    }, 100),
 
     // 更新关键指标
     updateMetrics() {
@@ -270,10 +283,11 @@ const App = {
         const delayed = this.tasks.filter(t => t.status === 'delay').length;
         const completed = this.tasks.filter(t => t.status === 'close').length;
 
-        document.getElementById('totalTasks').textContent = total;
-        document.getElementById('upcomingTasks').textContent = upcoming;
-        document.getElementById('delayedTasks').textContent = delayed;
-        document.getElementById('completedTasks').textContent = completed;
+        // 使用文本节点更新，减少DOM操作
+        this.setTextContent('totalTasks', total);
+        this.setTextContent('upcomingTasks', upcoming);
+        this.setTextContent('delayedTasks', delayed);
+        this.setTextContent('completedTasks', completed);
 
         // 7天内到期超过3个显示红色警告
         const upcomingCard = document.getElementById('upcomingCard');
@@ -286,8 +300,20 @@ const App = {
         }
     },
 
-    // 更新部门统计表
+    // 设置文本内容的辅助函数
+    setTextContent(id, text) {
+        const el = document.getElementById(id);
+        if (el && el.textContent !== String(text)) {
+            el.textContent = text;
+        }
+    },
+
+    // 更新部门统计表 - 使用缓存
     updateOwnerTable() {
+        const cacheKey = JSON.stringify(this.tasks.map(t => ({ d: t.department, s: t.status })));
+        if (this.renderCache.deptTable === cacheKey) return;
+        this.renderCache.deptTable = cacheKey;
+
         const deptStats = {};
 
         this.tasks.forEach(task => {
@@ -313,7 +339,7 @@ const App = {
 
         tbody.innerHTML = sortedDepts.map(d => `
             <tr>
-                <td>${d.department}</td>
+                <td>${this.escapeHtml(d.department)}</td>
                 <td>${d.total}</td>
                 <td style="color: var(--color-ongoing)">${d.ongoing}</td>
                 <td style="color: var(--color-delay)">${d.delay}</td>
@@ -324,8 +350,8 @@ const App = {
         return sortedDepts;
     },
 
-    // 更新图表
-    updateCharts() {
+    // 更新图表 - 使用防抖优化
+    updateCharts: this.debounce(function() {
         const ongoing = this.tasks.filter(t => t.status === 'ongoing').length;
         const delayed = this.tasks.filter(t => t.status === 'delay').length;
         const completed = this.tasks.filter(t => t.status === 'close').length;
@@ -334,13 +360,15 @@ const App = {
 
         const ownerData = this.updateOwnerTable() || [];
         ChartManager.updateOwnerChart(ownerData);
-    },
+    }, 200),
 
     // 更新责任人和部门数据列表（用于下拉提示）
     updateOwnerDatalist() {
         const owners = [...new Set(this.tasks.map(t => t.owner))];
         const ownerDatalist = document.getElementById('ownerList');
-        ownerDatalist.innerHTML = owners.map(o => `<option value="${o}">`).join('');
+        if (ownerDatalist) {
+            ownerDatalist.innerHTML = owners.map(o => `<option value="${o}">`).join('');
+        }
 
         const departments = [...new Set(this.tasks.map(t => t.department).filter(d => d))];
         const deptDatalist = document.getElementById('departmentList');
@@ -349,7 +377,7 @@ const App = {
         }
     },
 
-    // 渲染任务列表
+    // 渲染任务列表 - 使用DocumentFragment优化
     renderTaskList() {
         const taskList = document.getElementById('taskList');
 
@@ -376,7 +404,11 @@ const App = {
             return;
         }
 
-        taskList.innerHTML = filteredTasks.map(task => {
+        // 使用DocumentFragment减少DOM操作
+        const fragment = document.createDocumentFragment();
+        const tempDiv = document.createElement('div');
+
+        filteredTasks.forEach(task => {
             const statusClass = `status-${task.status}`;
             let badge = '';
 
@@ -392,13 +424,11 @@ const App = {
             // 根据任务状态显示不同的按钮
             let actionButtons = '';
             if (task.status === 'close') {
-                // 已完成的任务只显示编辑按钮
                 actionButtons = `
                     <button class="action-btn btn-edit" data-task-id="${task.id}">编辑</button>
                     <button class="action-btn btn-delete" data-task-id="${task.id}">删除</button>
                 `;
             } else {
-                // 未完成的任务显示完成、编辑、删除按钮
                 actionButtons = `
                     <button class="action-btn btn-complete" data-task-id="${task.id}">完成</button>
                     <button class="action-btn btn-edit" data-task-id="${task.id}">编辑</button>
@@ -409,7 +439,7 @@ const App = {
             const department = task.department ? `<span>🏢 ${this.escapeHtml(task.department)}</span>` : '';
             const progress = task.progress ? `<span>📝 ${this.escapeHtml(task.progress)}</span>` : '';
 
-            return `
+            tempDiv.innerHTML = `
                 <div class="task-card ${statusClass}">
                     <div class="task-content">
                         <div class="task-title">${this.escapeHtml(task.content)}</div>
@@ -426,27 +456,28 @@ const App = {
                     </div>
                 </div>
             `;
-        }).join('');
+            fragment.appendChild(tempDiv.firstElementChild);
+        });
+
+        taskList.innerHTML = '';
+        taskList.appendChild(fragment);
     },
 
     // HTML转义
     escapeHtml(text) {
         const div = document.createElement('div');
-        div.textContent = text;
+        div.textContent = text || '';
         return div.innerHTML;
     },
 
-    // 启动自动刷新（每分钟）
+    // 启动自动刷新（每5分钟）
     startAutoRefresh() {
         setInterval(() => {
             this.updateAllTaskStatus();
             this.render();
-        }, 60000);
+        }, 5 * 60 * 1000); // 改为5分钟
     }
 };
-
-// 将App对象暴露到全局作用域
-window.App = App;
 
 // 页面加载完成后初始化应用
 document.addEventListener('DOMContentLoaded', () => {

@@ -1,12 +1,15 @@
-// 图表管理
+// 图表管理 - 性能优化版
 const ChartManager = {
     statusChart: null,
     ownerChart: null,
+    lastUpdateData: null,
 
     // 初始化状态分布饼图
     initStatusChart() {
-        const ctx = document.getElementById('statusChart').getContext('2d');
-        this.statusChart = new Chart(ctx, {
+        const ctx = document.getElementById('statusChart');
+        if (!ctx) return;
+
+        this.statusChart = new Chart(ctx.getContext('2d'), {
             type: 'doughnut',
             data: {
                 labels: ['进行中', '已延期', '已完成'],
@@ -19,6 +22,9 @@ const ChartManager = {
             options: {
                 responsive: true,
                 maintainAspectRatio: true,
+                animation: {
+                    duration: 300 // 减少动画时间
+                },
                 plugins: {
                     legend: {
                         position: 'bottom',
@@ -33,10 +39,12 @@ const ChartManager = {
         });
     },
 
-    // 初始化责任人分布柱状图
+    // 初始化部门分布柱状图
     initOwnerChart() {
-        const ctx = document.getElementById('ownerChart').getContext('2d');
-        this.ownerChart = new Chart(ctx, {
+        const ctx = document.getElementById('ownerChart');
+        if (!ctx) return;
+
+        this.ownerChart = new Chart(ctx.getContext('2d'), {
             type: 'bar',
             data: {
                 labels: [],
@@ -50,6 +58,9 @@ const ChartManager = {
             options: {
                 responsive: true,
                 maintainAspectRatio: true,
+                animation: {
+                    duration: 300 // 减少动画时间
+                },
                 plugins: {
                     legend: { display: false }
                 },
@@ -63,23 +74,40 @@ const ChartManager = {
         });
     },
 
-    // 更新状态图表
+    // 更新状态图表 - 只在数据变化时更新
     updateStatusChart(ongoing, delayed, completed) {
-        if (this.statusChart) {
-            this.statusChart.data.datasets[0].data = [ongoing, delayed, completed];
-            this.statusChart.update();
-        }
+        if (!this.statusChart) return;
+
+        const newData = [ongoing, delayed, completed];
+        const currentData = this.statusChart.data.datasets[0].data;
+
+        // 检查数据是否真的变化了
+        const hasChanged = newData.some((val, i) => val !== currentData[i]);
+        if (!hasChanged) return;
+
+        this.statusChart.data.datasets[0].data = newData;
+        this.statusChart.update('none'); // 使用 'none' 模式跳过动画
     },
 
-    // 更新部门图表
+    // 更新部门图表 - 只在数据变化时更新
     updateOwnerChart(ownerData) {
-        if (this.ownerChart) {
-            const labels = ownerData.map(o => o.department);
-            const data = ownerData.map(o => o.total);
-            this.ownerChart.data.labels = labels;
-            this.ownerChart.data.datasets[0].data = data;
-            this.ownerChart.update();
-        }
+        if (!this.ownerChart) return;
+
+        const newLabels = ownerData.map(o => o.department);
+        const newData = ownerData.map(o => o.total);
+
+        // 检查数据是否真的变化了
+        const currentLabels = this.ownerChart.data.labels;
+        const currentData = this.ownerChart.data.datasets[0].data;
+
+        const labelsChanged = JSON.stringify(newLabels) !== JSON.stringify(currentLabels);
+        const dataChanged = JSON.stringify(newData) !== JSON.stringify(currentData);
+
+        if (!labelsChanged && !dataChanged) return;
+
+        this.ownerChart.data.labels = newLabels;
+        this.ownerChart.data.datasets[0].data = newData;
+        this.ownerChart.update('none'); // 使用 'none' 模式跳过动画
     },
 
     // 初始化所有图表

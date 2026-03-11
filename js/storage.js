@@ -15,31 +15,21 @@ const TaskStorage = {
 
     // 保存所有任务
     saveTasks(tasks) {
-        console.log('TaskStorage.saveTasks called with', tasks.length, 'tasks');
         try {
-            const data = JSON.stringify(tasks);
-            console.log('Data to save length:', data.length);
-            localStorage.setItem(STORAGE_KEY, data);
-            console.log('Save successful, verifying...');
-            const saved = localStorage.getItem(STORAGE_KEY);
-            console.log('Saved data length:', saved?.length);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
             return true;
         } catch (error) {
             console.error('保存任务数据失败:', error);
-            alert('保存失败: ' + error.message);
+            alert('存储空间不足，请清理一些旧数据');
             return false;
         }
     },
 
     // 添加任务
     addTask(task) {
-        console.log('TaskStorage.addTask called with:', task);
         const tasks = this.getTasks();
-        console.log('Current tasks before add:', tasks);
         tasks.push(task);
-        const result = this.saveTasks(tasks);
-        console.log('Save result:', result);
-        return result;
+        return this.saveTasks(tasks);
     },
 
     // 更新任务

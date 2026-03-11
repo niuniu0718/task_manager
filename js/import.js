@@ -303,13 +303,10 @@ const BulkImport = {
 
     // 确认导入
     confirmImport() {
-        console.log('confirmImport called');
         const overwrite = document.getElementById('overwriteMode').checked;
-        console.log('overwrite mode:', overwrite);
 
         // 只导入没有错误的数据
         const validData = this.previewData.filter(item => item.errors.length === 0);
-        console.log('validData:', validData);
 
         if (validData.length === 0) {
             alert('没有可以导入的数据，请检查文件中的错误');
@@ -327,23 +324,14 @@ const BulkImport = {
             status: item.status,
             createdAt: new Date().toISOString()
         }));
-        console.log('tasks to import:', tasks);
 
         // 执行导入
         if (overwrite) {
-            console.log('Saving tasks (overwrite mode)');
             TaskStorage.saveTasks(tasks);
         } else {
             const existingTasks = TaskStorage.getTasks();
-            console.log('Existing tasks:', existingTasks);
-            const allTasks = [...existingTasks, ...tasks];
-            console.log('All tasks after merge:', allTasks);
-            TaskStorage.saveTasks(allTasks);
+            TaskStorage.saveTasks([...existingTasks, ...tasks]);
         }
-
-        // 验证保存
-        const savedTasks = TaskStorage.getTasks();
-        console.log('Tasks after saving:', savedTasks);
 
         // 显示结果
         const successCount = tasks.length;
