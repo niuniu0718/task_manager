@@ -1,3 +1,24 @@
+// 节流函数
+function throttle(func, delay) {
+    let lastCall = 0;
+    return function(...args) {
+        const now = Date.now();
+        if (now - lastCall >= delay) {
+            lastCall = now;
+            return func.apply(this, args);
+        }
+    };
+}
+
+// 防抖函数
+function debounce(func, delay) {
+    let timeoutId;
+    return function(...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => func.apply(this, args), delay);
+    };
+}
+
 // 应用主逻辑 - 性能优化版
 const App = {
     tasks: [],
@@ -6,27 +27,6 @@ const App = {
     taskToEdit: null,
     lastRenderTime: 0,
     renderCache: {},
-
-    // 节流函数
-    throttle(func, delay) {
-        let lastCall = 0;
-        return function(...args) {
-            const now = Date.now();
-            if (now - lastCall >= delay) {
-                lastCall = now;
-                func.apply(this, args);
-            }
-        };
-    },
-
-    // 防抖函数
-    debounce(func, delay) {
-        let timeoutId;
-        return function(...args) {
-            clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => func.apply(this, args), delay);
-        };
-    },
 
     // 初始化应用
     init() {
@@ -265,14 +265,19 @@ const App = {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
     },
 
+    // 渲染核心逻辑
+    renderCore() {
+        this.updateMetrics();
+        this.updateOwnerTable();
+        this.updateChartsCore();
+        this.renderTaskList();
+        this.updateOwnerDatalist();
+    },
+
     // 渲染整个界面 - 使用节流优化
-    render: this.throttle(function() {
+    render: throttle(function() {
         requestAnimationFrame(() => {
-            this.updateMetrics();
-            this.updateOwnerTable();
-            this.updateCharts();
-            this.renderTaskList();
-            this.updateOwnerDatalist();
+            this.renderCore();
         });
     }, 100),
 
@@ -350,8 +355,8 @@ const App = {
         return sortedDepts;
     },
 
-    // 更新图表 - 使用防抖优化
-    updateCharts: this.debounce(function() {
+    // 更新图表核心逻辑
+    updateChartsCore() {
         const ongoing = this.tasks.filter(t => t.status === 'ongoing').length;
         const delayed = this.tasks.filter(t => t.status === 'delay').length;
         const completed = this.tasks.filter(t => t.status === 'close').length;
@@ -360,6 +365,11 @@ const App = {
 
         const ownerData = this.updateOwnerTable() || [];
         ChartManager.updateOwnerChart(ownerData);
+    },
+
+    // 更新图表 - 使用防抖优化
+    updateCharts: debounce(function() {
+        this.updateChartsCore();
     }, 200),
 
     // 更新责任人和部门数据列表（用于下拉提示）
