@@ -1,0 +1,454 @@
+// 批量导入功能
+const BulkImport = {
+    previewData: [],
+    currentFile: null,
+
+    // 初始化
+    init() {
+        this.bindEvents();
+    },
+
+    // 绑定事件
+    bindEvents() {
+        // 选项卡切换
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this.switchTab(e.target.dataset.tab);
+            });
+        });
+
+        // 文件上传区点击
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                this.handleFile(e.target.files[0]);
+            }
+        });
+
+        // 拖拽上传
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            if (e.dataTransfer.files.length > 0) {
+                this.handleFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        // 清除文件
+        document.getElementById('clearFile').addEventListener('click', () => {
+            this.clearFile();
+        });
+
+        // 取消导入
+        document.getElementById('cancelImport').addEventListener('click', () => {
+            this.clearFile();
+        });
+
+        // 确认导入
+        document.getElementById('confirmImport').addEventListener('click', () => {
+            this.confirmImport();
+        });
+
+        // 下载模板
+        document.getElementById('downloadTemplate').addEventListener('click', () => {
+            this.downloadTemplate();
+        });
+
+        // 导出数据
+        document.getElementById('exportData').addEventListener('click', () => {
+            this.exportData();
+        });
+    },
+
+    // 切换选项卡
+    switchTab(tabName) {
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === tabName);
+        });
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.toggle('active', content.id === `tab-${tabName}`);
+        });
+    },
+
+    // 处理文件
+    handleFile(file) {
+        const fileName = file.name.toLowerCase();
+        const isValidFormat = fileName.endsWith('.xlsx') || fileName.endsWith('.csv');
+
+        if (!isValidFormat) {
+            alert('仅支持 .xlsx 和 .csv 格式的文件');
+            return;
+        }
+
+        this.currentFile = file;
+
+        // 显示文件名
+        document.getElementById('fileName').textContent = file.name;
+        document.getElementById('currentFile').style.display = 'flex';
+        document.getElementById('uploadArea').style.display = 'none';
+
+        // 读取并解析文件
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = this.parseFile(e.target.result, file.name);
+                this.previewData = this.validateData(data);
+                this.showPreview();
+            } catch (error) {
+                alert('文件解析失败：' + error.message);
+                this.clearFile();
+            }
+        };
+        reader.readAsBinaryString(file);
+    },
+
+    // 解析文件
+    parseFile(data, fileName) {
+        const workbook = XLSX.read(data, { type: 'binary' });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        return jsonData;
+    },
+
+    // 验证数据
+    validateData(data) {
+        if (!data || data.length === 0) {
+            throw new Error('文件中没有数据');
+        }
+
+        return data.map((row, index) => {
+            const result = {
+                index: index + 1,
+                content: this.trimValue(row['任务内容'] || row['content'] || ''),
+                owner: this.trimValue(row['责任人'] || row['owner'] || ''),
+                department: this.trimValue(row['部门'] || row['department'] || ''),
+                deadline: this.parseDate(row['计划完成时间'] || row['deadline'] || ''),
+                progress: this.trimValue(row['最新进展'] || row['progress'] || ''),
+                status: this.parseStatus(row['任务状态'] || row['status'] || ''),
+                errors: [],
+                warnings: []
+            };
+
+            // 验证必填字段
+            if (!result.content) {
+                result.errors.push('任务内容不能为空');
+            }
+            if (!result.owner) {
+                result.errors.push('责任人不能为空');
+            }
+            if (!result.deadline) {
+                result.errors.push('日期格式无效');
+            }
+
+            // 验证状态
+            if (row['任务状态'] || row['status']) {
+                if (!result.status) {
+                    result.warnings.push('状态值无法识别，将自动计算');
+                }
+            }
+
+            // 检查是否需要计算状态
+            if (result.deadline && !result.status) {
+                const now = new Date();
+                now.setHours(0, 0, 0, 0);
+                const deadline = new Date(result.deadline);
+                result.status = now > deadline ? 'delay' : 'ongoing';
+            }
+
+            return result;
+        });
+    },
+
+    // 去除空格
+    trimValue(value) {
+        return typeof value === 'string' ? value.trim() : value;
+    },
+
+    // 解析日期
+    parseDate(dateStr) {
+        if (!dateStr) return null;
+
+        dateStr = this.trimValue(dateStr);
+
+        // 尝试多种日期格式
+        const formats = [
+            /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/, // YYYY-MM-DD 或 YYYY/MM/DD
+            /(\d{4})年(\d{1,2})月(\d{1,2})日/,    // YYYY年MM月DD日
+            /(\d{1,2})[-/](\d{1,2})[-/](\d{4})/  // MM-DD-YYYY 或 MM/DD/YYYY
+        ];
+
+        for (const format of formats) {
+            const match = dateStr.match(format);
+            if (match) {
+                let year, month, day;
+                if (format === formats[2]) {
+                    // MM-DD-YYYY 格式
+                    [_, month, day, year] = match;
+                } else {
+                    [_, year, month, day] = match;
+                }
+                const date = new Date(year, month - 1, day);
+                if (!isNaN(date.getTime())) {
+                    return date.toISOString().split('T')[0];
+                }
+            }
+        }
+
+        return null;
+    },
+
+    // 解析状态
+    parseStatus(statusStr) {
+        if (!statusStr) return null;
+        statusStr = this.trimValue(String(statusStr).toLowerCase());
+
+        const statusMap = {
+            'ongoing': 'ongoing',
+            '进行中': 'ongoing',
+            'delay': 'delay',
+            '延期': 'delay',
+            'delayed': 'delay',
+            'close': 'close',
+            'closed': 'close',
+            '完成': 'close',
+            '已完成': 'close',
+            'done': 'close'
+        };
+
+        return statusMap[statusStr] || null;
+    },
+
+    // 显示预览
+    showPreview() {
+        const container = document.getElementById('previewContainer');
+        const tbody = document.getElementById('previewTableBody');
+        const summary = document.getElementById('previewSummary');
+
+        // 统计错误和警告
+        const errorCount = this.previewData.filter(item => item.errors.length > 0).length;
+        const warningCount = this.previewData.filter(item => item.warnings.length > 0).length;
+
+        // 显示摘要
+        summary.innerHTML = `
+            共 ${this.previewData.length} 条数据
+            ${errorCount > 0 ? `<span class="error-count">${errorCount} 条错误</span>` : ''}
+            ${warningCount > 0 ? `<span style="color: var(--color-warning)">${warningCount} 条警告</span>` : ''}
+        `;
+
+        // 生成表格
+        tbody.innerHTML = this.previewData.map(item => {
+            const rowClass = item.errors.length > 0 ? 'error-row' : (item.warnings.length > 0 ? 'warning-row' : '');
+            const statusDisplay = this.getStatusDisplay(item.status);
+            const validationStatus = item.errors.length > 0
+                ? '<span class="status-error">❌ 有错误</span>'
+                : (item.warnings.length > 0 ? '<span class="status-warning">⚠️ 有警告</span>' : '<span class="status-ok">✓ 正常</span>');
+
+            return `
+                <tr class="${rowClass}">
+                    <td>${item.index}</td>
+                    <td>
+                        ${this.escapeHtml(item.content)}
+                        ${item.errors.filter(e => e.includes('任务内容')).map(e => `<span class="error-hint">⚠️ ${e}</span>`).join('')}
+                    </td>
+                    <td>
+                        ${this.escapeHtml(item.owner)}
+                        ${item.errors.filter(e => e.includes('责任人')).map(e => `<span class="error-hint">⚠️ ${e}</span>`).join('')}
+                    </td>
+                    <td>${this.escapeHtml(item.department)}</td>
+                    <td>
+                        ${item.deadline}
+                        ${item.errors.filter(e => e.includes('日期')).map(e => `<span class="error-hint">⚠️ ${e}</span>`).join('')}
+                    </td>
+                    <td>${this.escapeHtml(item.progress)}</td>
+                    <td>${statusDisplay}</td>
+                    <td>${validationStatus}</td>
+                </tr>
+            `;
+        }).join('');
+
+        container.style.display = 'block';
+    },
+
+    // 获取状态显示
+    getStatusDisplay(status) {
+        const statusMap = {
+            'ongoing': '<span style="color: var(--color-ongoing)">进行中</span>',
+            'delay': '<span style="color: var(--color-delay)">已延期</span>',
+            'close': '<span style="color: var(--color-close)">已完成</span>'
+        };
+        return statusMap[status] || status;
+    },
+
+    // HTML转义
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text || '';
+        return div.innerHTML;
+    },
+
+    // 确认导入
+    confirmImport() {
+        console.log('confirmImport called');
+        const overwrite = document.getElementById('overwriteMode').checked;
+        console.log('overwrite mode:', overwrite);
+
+        // 只导入没有错误的数据
+        const validData = this.previewData.filter(item => item.errors.length === 0);
+        console.log('validData:', validData);
+
+        if (validData.length === 0) {
+            alert('没有可以导入的数据，请检查文件中的错误');
+            return;
+        }
+
+        // 生成任务数据
+        const tasks = validData.map(item => ({
+            id: this.generateId(),
+            content: item.content,
+            owner: item.owner,
+            department: item.department,
+            deadline: item.deadline,
+            progress: item.progress,
+            status: item.status,
+            createdAt: new Date().toISOString()
+        }));
+        console.log('tasks to import:', tasks);
+
+        // 执行导入
+        if (overwrite) {
+            console.log('Saving tasks (overwrite mode)');
+            TaskStorage.saveTasks(tasks);
+        } else {
+            const existingTasks = TaskStorage.getTasks();
+            console.log('Existing tasks:', existingTasks);
+            const allTasks = [...existingTasks, ...tasks];
+            console.log('All tasks after merge:', allTasks);
+            TaskStorage.saveTasks(allTasks);
+        }
+
+        // 验证保存
+        const savedTasks = TaskStorage.getTasks();
+        console.log('Tasks after saving:', savedTasks);
+
+        // 显示结果
+        const successCount = tasks.length;
+        const errorCount = this.previewData.length - successCount;
+        let message = `成功导入 ${successCount} 条任务`;
+        if (errorCount > 0) {
+            message += `，跳过 ${errorCount} 条有错误的数据`;
+        }
+        alert(message);
+
+        // 清理并刷新
+        this.clearFile();
+        App.tasks = TaskStorage.getTasks();
+        App.updateAllTaskStatus();
+        App.render();
+
+        // 切换到任务列表
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.filter === 'all');
+        });
+        App.currentFilter = 'all';
+    },
+
+    // 清除文件
+    clearFile() {
+        this.currentFile = null;
+        this.previewData = [];
+        document.getElementById('currentFile').style.display = 'none';
+        document.getElementById('uploadArea').style.display = 'block';
+        document.getElementById('previewContainer').style.display = 'none';
+        document.getElementById('fileInput').value = '';
+        document.getElementById('overwriteMode').checked = false;
+    },
+
+    // 生成唯一ID
+    generateId() {
+        return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    },
+
+    // 下载模板
+    downloadTemplate() {
+        const templateData = [
+            {
+                '任务内容': '完成需求文档',
+                '责任人': '张三',
+                '部门': '研发部',
+                '计划完成时间': '2026-03-15',
+                '最新进展': '已完成初稿',
+                '任务状态': ''
+            },
+            {
+                '任务内容': '代码审查',
+                '责任人': '李四',
+                '部门': '研发部',
+                '计划完成时间': '2026-03-20',
+                '最新进展': '进行中',
+                '任务状态': 'ongoing'
+            },
+            {
+                '任务内容': '测试用例编写',
+                '责任人': '王五',
+                '部门': '测试部',
+                '计划完成时间': '2026-03-10',
+                '最新进展': '已完成',
+                '任务状态': 'close'
+            }
+        ];
+
+        const worksheet = XLSX.utils.json_to_sheet(templateData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, '导入模板');
+        XLSX.writeFile(workbook, '任务导入模板.xlsx');
+    },
+
+    // 导出数据
+    exportData() {
+        const tasks = TaskStorage.getTasks();
+
+        if (tasks.length === 0) {
+            alert('暂无数据可导出');
+            return;
+        }
+
+        // 转换为导出格式
+        const exportData = tasks.map(task => ({
+            '任务内容': task.content,
+            '责任人': task.owner,
+            '部门': task.department || '',
+            '计划完成时间': task.deadline,
+            '最新进展': task.progress || '',
+            '任务状态': task.status,
+            '创建时间': task.createdAt
+        }));
+
+        const worksheet = XLSX.utils.json_to_sheet(exportData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, '任务列表');
+
+        // 生成文件名（包含日期）
+        const date = new Date().toISOString().split('T')[0];
+        XLSX.writeFile(workbook, `任务导出_${date}.xlsx`);
+    }
+};
+
+// 初始化导入功能
+document.addEventListener('DOMContentLoaded', () => {
+    BulkImport.init();
+});

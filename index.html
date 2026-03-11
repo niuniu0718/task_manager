@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>任务管理系统</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📋 任务管理系统</h1>
+            <p class="subtitle">跟踪任务进度，把握项目节奏</p>
+        </header>
+
+        <!-- 看板区域 -->
+        <section class="dashboard" id="dashboard">
+            <!-- 关键指标 -->
+            <div class="metrics">
+                <div class="metric-card">
+                    <div class="metric-icon">📊</div>
+                    <div class="metric-content">
+                        <div class="metric-value" id="totalTasks">0</div>
+                        <div class="metric-label">任务总数</div>
+                    </div>
+                </div>
+                <div class="metric-card warning" id="upcomingCard">
+                    <div class="metric-icon">⏰</div>
+                    <div class="metric-content">
+                        <div class="metric-value" id="upcomingTasks">0</div>
+                        <div class="metric-label">7天内到期</div>
+                    </div>
+                </div>
+                <div class="metric-card danger">
+                    <div class="metric-icon">⚠️</div>
+                    <div class="metric-content">
+                        <div class="metric-value" id="delayedTasks">0</div>
+                        <div class="metric-label">已延期</div>
+                    </div>
+                </div>
+                <div class="metric-card success">
+                    <div class="metric-icon">✅</div>
+                    <div class="metric-content">
+                        <div class="metric-value" id="completedTasks">0</div>
+                        <div class="metric-label">已完成</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 部门统计 -->
+            <div class="owner-stats">
+                <h3>🏢 部门统计</h3>
+                <table class="owner-table">
+                    <thead>
+                        <tr>
+                            <th>部门</th>
+                            <th>总数</th>
+                            <th>进行中</th>
+                            <th>延期</th>
+                            <th>已完成</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ownerTableBody">
+                        <tr><td colspan="5" class="empty-state">暂无数据</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 可视化图表 -->
+            <div class="charts">
+                <div class="chart-container">
+                    <h3>任务状态分布</h3>
+                    <canvas id="statusChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3>部门任务分布</h3>
+                    <canvas id="ownerChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- 任务操作区域 - 选项卡 -->
+        <section class="task-form-section">
+            <div class="tab-container">
+                <div class="tab-header">
+                    <button class="tab-btn active" data-tab="single">➕ 单个添加</button>
+                    <button class="tab-btn" data-tab="bulk">📥 批量导入</button>
+                </div>
+
+                <!-- 单个添加标签 -->
+                <div class="tab-content active" id="tab-single">
+                    <form class="task-form" id="taskForm">
+                        <div class="form-group">
+                            <label for="taskContent">任务内容 *</label>
+                            <input type="text" id="taskContent" placeholder="输入任务内容..." required>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="taskOwner">责任人 *</label>
+                                <input type="text" id="taskOwner" list="ownerList" placeholder="输入责任人..." required>
+                                <datalist id="ownerList"></datalist>
+                            </div>
+                            <div class="form-group">
+                                <label for="taskDepartment">部门</label>
+                                <input type="text" id="taskDepartment" list="departmentList" placeholder="输入部门...">
+                                <datalist id="departmentList"></datalist>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="taskDeadline">计划完成时间 *</label>
+                                <input type="date" id="taskDeadline" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="taskProgress">最新进展</label>
+                                <input type="text" id="taskProgress" placeholder="输入最新进展...">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">添加任务</button>
+                    </form>
+                </div>
+
+                <!-- 批量导入标签 -->
+                <div class="tab-content" id="tab-bulk">
+                    <div class="bulk-import-container">
+                        <!-- 模板下载和导出 -->
+                        <div class="template-actions">
+                            <button class="btn btn-secondary" id="downloadTemplate">
+                                📥 下载导入模板
+                            </button>
+                            <button class="btn btn-secondary" id="exportData">
+                                📤 导出当前数据
+                            </button>
+                        </div>
+
+                        <!-- 文件上传区 -->
+                        <div class="upload-area" id="uploadArea">
+                            <div class="upload-content">
+                                <div class="upload-icon">📁</div>
+                                <p>拖拽文件到此处，或点击选择文件</p>
+                                <p class="upload-hint">支持 .xlsx 和 .csv 格式</p>
+                            </div>
+                            <input type="file" id="fileInput" accept=".xlsx,.csv" style="display: none;">
+                        </div>
+
+                        <!-- 当前文件显示 -->
+                        <div class="current-file" id="currentFile" style="display: none;">
+                            <span class="file-name" id="fileName"></span>
+                            <button class="btn btn-secondary btn-small" id="clearFile">清除</button>
+                        </div>
+
+                        <!-- 导入预览 -->
+                        <div class="preview-container" id="previewContainer" style="display: none;">
+                            <div class="preview-header">
+                                <h3>导入预览</h3>
+                                <div class="preview-summary" id="previewSummary"></div>
+                            </div>
+                            <div class="preview-table-wrapper">
+                                <table class="preview-table">
+                                    <thead>
+                                        <tr>
+                                            <th>序号</th>
+                                            <th>任务内容</th>
+                                            <th>责任人</th>
+                                            <th>部门</th>
+                                            <th>计划完成时间</th>
+                                            <th>最新进展</th>
+                                            <th>任务状态</th>
+                                            <th>状态</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="previewTableBody"></tbody>
+                                </table>
+                            </div>
+                            <div class="preview-actions">
+                                <label class="import-mode">
+                                    <input type="checkbox" id="overwriteMode">
+                                    清空现有数据，仅保留导入的任务
+                                </label>
+                                <div class="action-buttons">
+                                    <button class="btn btn-secondary" id="cancelImport">取消</button>
+                                    <button class="btn btn-primary" id="confirmImport">确认导入</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 任务列表 -->
+        <section class="task-list-section">
+            <div class="list-header">
+                <h2>📝 任务列表</h2>
+                <div class="filter-group">
+                    <button class="filter-btn active" data-filter="all">全部</button>
+                    <button class="filter-btn" data-filter="ongoing">进行中</button>
+                    <button class="filter-btn" data-filter="delay">已延期</button>
+                    <button class="filter-btn" data-filter="close">已完成</button>
+                </div>
+            </div>
+            <div class="task-list" id="taskList">
+                <div class="empty-state">
+                    <div class="empty-icon">📭</div>
+                    <p>暂无任务，开始添加吧！</p>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 删除确认弹窗 -->
+    <div class="modal" id="deleteModal">
+        <div class="modal-content">
+            <h3>确认删除</h3>
+            <p>确定要删除这个任务吗？此操作无法撤销。</p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="cancelDelete">取消</button>
+                <button class="btn btn-danger" id="confirmDelete">删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑任务弹窗 -->
+    <div class="modal" id="editModal">
+        <div class="modal-content modal-large">
+            <h3>编辑任务</h3>
+            <form class="task-form" id="editForm">
+                <div class="form-group">
+                    <label for="editContent">任务内容 *</label>
+                    <input type="text" id="editContent" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="editOwner">责任人 *</label>
+                        <input type="text" id="editOwner" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editDepartment">部门</label>
+                        <input type="text" id="editDepartment">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="editDeadline">计划完成时间 *</label>
+                        <input type="date" id="editDeadline" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editProgress">最新进展</label>
+                        <input type="text" id="editProgress">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="editStatus">
+                        标记为已完成
+                    </label>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="cancelEdit">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="js/storage.js"></script>
+    <script src="js/chart.js"></script>
+    <script src="js/import.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
