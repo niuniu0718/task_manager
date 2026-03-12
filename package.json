@@ -1,0 +1,24 @@
+{
+  "name": "task-manager",
+  "version": "1.0.0",
+  "description": "一个简洁高效的Web任务管理系统，帮助您跟踪行动项、管理任务进度。",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/niuniu0718/task_manager.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/niuniu0718/task_manager/issues"
+  },
+  "homepage": "https://github.com/niuniu0718/task_manager#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}
