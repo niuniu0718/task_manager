@@ -795,3 +795,85 @@ header h1 {
 .btn-edit:hover {
     background: #2563EB;
 }
+
+/* 任务卡片展开功能 */
+.task-card {
+    flex-wrap: wrap;
+}
+
+.task-content.expandable {
+    cursor: pointer;
+}
+
+.task-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.expand-icon {
+    font-size: 0.7rem;
+    color: var(--color-text-light);
+    transition: transform 0.2s;
+}
+
+.task-card.expanded .expand-icon {
+    transform: rotate(90deg);
+}
+
+.history-indicator {
+    color: var(--color-ongoing);
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+/* 进展历史面板 */
+.task-history {
+    display: none;
+    width: 100%;
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--color-card);
+    border-radius: 8px;
+    border: 1px solid var(--color-border);
+}
+
+.task-card.expanded .task-history {
+    display: block;
+}
+
+.history-title {
+    font-size: 0.9rem;
+    font-weight: 500;
+    margin-bottom: 10px;
+    color: var(--color-text);
+}
+
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.history-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    background: var(--color-bg);
+    border-radius: 6px;
+    border-left: 3px solid var(--color-ongoing);
+}
+
+.history-time {
+    font-size: 0.75rem;
+    color: var(--color-text-light);
+}
+
+.history-content {
+    font-size: 0.85rem;
+    color: var(--color-text);
+    word-break: break-word;
+}

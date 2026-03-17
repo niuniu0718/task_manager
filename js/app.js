@@ -133,6 +133,9 @@ const App = {
             if (this.taskToDelete) {
                 TaskStorage.deleteTask(this.taskToDelete);
                 this.tasks = TaskStorage.getTasks();
+                // 清除缓存
+                this.virtualScroll.filterCacheKey = '';
+                this.renderCache = {};
                 this.closeDeleteModal();
                 this.render();
             }
@@ -166,16 +169,25 @@ const App = {
             const completeBtn = e.target.closest('.btn-complete');
             const editBtn = e.target.closest('.btn-edit');
             const deleteBtn = e.target.closest('.btn-delete');
+            const taskContent = e.target.closest('.task-content.expandable');
 
             if (completeBtn) {
+                e.stopPropagation();
                 const taskId = completeBtn.dataset.taskId;
                 this.completeTask(taskId);
             } else if (editBtn) {
+                e.stopPropagation();
                 const taskId = editBtn.dataset.taskId;
                 this.openEditModal(taskId);
             } else if (deleteBtn) {
+                e.stopPropagation();
                 const taskId = deleteBtn.dataset.taskId;
                 this.showDeleteModal(taskId);
+            } else if (taskContent) {
+                // 点击任务内容区域，展开/收起历史记录
+                e.stopPropagation();
+                const taskCard = taskContent.closest('.task-card');
+                taskCard.classList.toggle('expanded');
             }
         });
     },
@@ -204,12 +216,19 @@ const App = {
             department,
             deadline,
             progress,
+            progressHistory: progress ? [{
+                time: new Date().toISOString(),
+                content: progress
+            }] : [],
             status: 'ongoing',
             createdAt: new Date().toISOString()
         };
 
         if (TaskStorage.addTask(task)) {
             this.tasks = TaskStorage.getTasks();
+            // 清除缓存
+            this.virtualScroll.filterCacheKey = '';
+            this.renderCache = {};
             contentInput.value = '';
             ownerInput.value = '';
             document.getElementById('taskDepartment').value = '';
@@ -223,6 +242,9 @@ const App = {
     completeTask(taskId) {
         TaskStorage.updateTask(taskId, { status: 'close' });
         this.tasks = TaskStorage.getTasks();
+        // 清除缓存
+        this.virtualScroll.filterCacheKey = '';
+        this.renderCache = {};
         this.render();
     },
 
@@ -264,6 +286,11 @@ const App = {
             return;
         }
 
+        // 获取原任务数据
+        const originalTask = this.tasks.find(t => t.id === this.taskToEdit);
+        const originalProgress = originalTask ? (originalTask.progress || '') : '';
+
+        // 构建更新对象
         const updates = {
             content,
             owner,
@@ -273,8 +300,20 @@ const App = {
             status: isCompleted ? 'close' : this.calculateStatus({ deadline, status: 'ongoing' })
         };
 
+        // 如果进展内容有变化，记录到历史
+        if (progress && progress !== originalProgress) {
+            const progressHistory = originalTask?.progressHistory || [];
+            updates.progressHistory = [
+                { time: new Date().toISOString(), content: progress },
+                ...progressHistory
+            ];
+        }
+
         TaskStorage.updateTask(this.taskToEdit, updates);
         this.tasks = TaskStorage.getTasks();
+        // 清除缓存，确保重新渲染
+        this.virtualScroll.filterCacheKey = '';
+        this.renderCache = {};
         this.closeEditModal();
         this.render();
     },
@@ -526,21 +565,48 @@ const App = {
             const department = task.department ? `<span>🏢 ${this.escapeHtml(task.department)}</span>` : '';
             const progress = task.progress ? `<span>📝 ${this.escapeHtml(task.progress)}</span>` : '';
 
+            // 生成进展历史 HTML
+            const hasHistory = task.progressHistory && task.progressHistory.length > 0;
+            const historyIndicator = hasHistory ? `<span class="history-indicator" title="点击查看进展历史">📋 ${task.progressHistory.length}条记录</span>` : '';
+            const expandIcon = hasHistory ? '<span class="expand-icon">▶</span>' : '';
+
+            let historyHtml = '';
+            if (hasHistory) {
+                historyHtml = `
+                    <div class="task-history" data-task-id="${task.id}">
+                        <div class="history-title">📜 进展历史</div>
+                        <div class="history-list">
+                            ${task.progressHistory.map(record => `
+                                <div class="history-item">
+                                    <span class="history-time">${this.formatDateTime(record.time)}</span>
+                                    <span class="history-content">${this.escapeHtml(record.content)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
             tempDiv.innerHTML = `
-                <div class="task-card ${statusClass}" style="height: ${itemHeight - 12}px;">
-                    <div class="task-content">
-                        <div class="task-title">${this.escapeHtml(task.content)}</div>
+                <div class="task-card ${statusClass}" data-task-id="${task.id}">
+                    <div class="task-content ${hasHistory ? 'expandable' : ''}">
+                        <div class="task-header">
+                            ${expandIcon}
+                            <div class="task-title">${this.escapeHtml(task.content)}</div>
+                        </div>
                         <div class="task-meta">
                             <span>👤 ${this.escapeHtml(task.owner)}</span>
                             ${department}
                             <span>📅 ${task.deadline}</span>
                             ${badge}
+                            ${historyIndicator}
                         </div>
                         ${progress ? `<div class="task-progress">${progress}</div>` : ''}
                     </div>
                     <div class="task-actions">
                         ${actionButtons}
                     </div>
+                    ${historyHtml}
                 </div>
             `;
             fragment.appendChild(tempDiv.firstElementChild);
@@ -554,6 +620,17 @@ const App = {
 
         taskList.innerHTML = '';
         taskList.appendChild(wrapper);
+    },
+
+    // 格式化日期时间
+    formatDateTime(isoString) {
+        const date = new Date(isoString);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day} ${hours}:${minutes}`;
     },
 
     // 渲染任务列表 - 使用虚拟滚动优化
