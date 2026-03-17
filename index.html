@@ -111,9 +111,16 @@
                         </div>
                         <div class="form-row">
                             <div class="form-group">
+                                <label for="taskSource">来源</label>
+                                <input type="text" id="taskSource" list="sourceList" placeholder="输入任务来源...">
+                                <datalist id="sourceList"></datalist>
+                            </div>
+                            <div class="form-group">
                                 <label for="taskDeadline">计划完成时间 *</label>
                                 <input type="date" id="taskDeadline" required>
                             </div>
+                        </div>
+                        <div class="form-row">
                             <div class="form-group">
                                 <label for="taskProgress">最新进展</label>
                                 <input type="text" id="taskProgress" placeholder="输入最新进展...">
@@ -202,6 +209,26 @@
                     <button class="filter-btn" data-filter="close">已完成</button>
                 </div>
             </div>
+
+            <!-- 时间筛选 -->
+            <div class="time-filter">
+                <div class="time-filter-group">
+                    <label>创建时间:</label>
+                    <input type="date" id="createdDateStart" placeholder="开始日期">
+                    <span>至</span>
+                    <input type="date" id="createdDateEnd" placeholder="结束日期">
+                </div>
+                <div class="time-filter-group">
+                    <label>截止日期:</label>
+                    <input type="date" id="deadlineDateStart" placeholder="开始日期">
+                    <span>至</span>
+                    <input type="date" id="deadlineDateEnd" placeholder="结束日期">
+                </div>
+            </div>
+
+            <!-- 筛选信息 -->
+            <div class="filter-info" id="filterInfo" style="display: none;"></div>
+
             <div class="task-list" id="taskList">
                 <div class="empty-state">
                     <div class="empty-icon">📭</div>
@@ -244,9 +271,15 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group">
+                        <label for="editSource">来源</label>
+                        <input type="text" id="editSource">
+                    </div>
+                    <div class="form-group">
                         <label for="editDeadline">计划完成时间 *</label>
                         <input type="date" id="editDeadline" required>
                     </div>
+                </div>
+                <div class="form-row">
                     <div class="form-group">
                         <label for="editProgress">最新进展</label>
                         <input type="text" id="editProgress">

@@ -23,6 +23,11 @@ function debounce(func, delay) {
 const App = {
     tasks: [],
     currentFilter: 'all',
+    departmentFilter: null,      // 部门筛选
+    createdDateStart: null,      // 创建时间起始
+    createdDateEnd: null,        // 创建时间结束
+    deadlineDateStart: null,     // 截止日期起始
+    deadlineDateEnd: null,       // 截止日期结束
     taskToDelete: null,
     taskToEdit: null,
     lastRenderTime: 0,
@@ -124,6 +129,34 @@ const App = {
             this.handleVirtualScroll();
         }, 16)); // 约60fps
 
+        // 时间筛选事件
+        const createdStart = document.getElementById('createdDateStart');
+        const createdEnd = document.getElementById('createdDateEnd');
+        const deadlineStart = document.getElementById('deadlineDateStart');
+        const deadlineEnd = document.getElementById('deadlineDateEnd');
+
+        const handleTimeFilter = debounce(() => {
+            this.createdDateStart = createdStart?.value || null;
+            this.createdDateEnd = createdEnd?.value || null;
+            this.deadlineDateStart = deadlineStart?.value || null;
+            this.deadlineDateEnd = deadlineEnd?.value || null;
+            this.virtualScroll.filterCacheKey = '';
+            this.renderCache = {};
+            this.updateFilterDisplay();
+            this.renderTaskList();
+        }, 300);
+
+        [createdStart, createdEnd, deadlineStart, deadlineEnd].forEach(el => {
+            if (el) el.addEventListener('change', handleTimeFilter);
+        });
+
+        // 清除筛选按钮事件委托
+        document.getElementById('filterInfo').addEventListener('click', (e) => {
+            if (e.target.id === 'clearFilters') {
+                this.clearAllFilters();
+            }
+        });
+
         // 删除确认弹窗
         document.getElementById('cancelDelete').addEventListener('click', () => {
             this.closeDeleteModal();
@@ -135,9 +168,11 @@ const App = {
                 this.tasks = TaskStorage.getTasks();
                 // 清除缓存
                 this.virtualScroll.filterCacheKey = '';
+                this.virtualScroll.filteredTasks = [];
                 this.renderCache = {};
                 this.closeDeleteModal();
-                this.render();
+                // 直接调用 renderCore 绕过节流
+                this.renderCore();
             }
         });
 
@@ -201,6 +236,7 @@ const App = {
         const content = contentInput.value.trim();
         const owner = ownerInput.value.trim();
         const department = document.getElementById('taskDepartment').value.trim();
+        const source = document.getElementById('taskSource').value.trim();
         const deadline = deadlineInput.value;
         const progress = document.getElementById('taskProgress').value.trim();
 
@@ -214,6 +250,7 @@ const App = {
             content,
             owner,
             department,
+            source,
             deadline,
             progress,
             progressHistory: progress ? [{
@@ -228,13 +265,16 @@ const App = {
             this.tasks = TaskStorage.getTasks();
             // 清除缓存
             this.virtualScroll.filterCacheKey = '';
+            this.virtualScroll.filteredTasks = [];
             this.renderCache = {};
             contentInput.value = '';
             ownerInput.value = '';
             document.getElementById('taskDepartment').value = '';
+            document.getElementById('taskSource').value = '';
             deadlineInput.value = '';
             document.getElementById('taskProgress').value = '';
-            this.render();
+            // 直接调用 renderCore 绕过节流，确保立即刷新
+            this.renderCore();
         }
     },
 
@@ -244,8 +284,9 @@ const App = {
         this.tasks = TaskStorage.getTasks();
         // 清除缓存
         this.virtualScroll.filterCacheKey = '';
+        this.virtualScroll.filteredTasks = [];
         this.renderCache = {};
-        this.render();
+        this.renderCore();
     },
 
     // 打开编辑弹窗
@@ -259,6 +300,7 @@ const App = {
         document.getElementById('editContent').value = task.content;
         document.getElementById('editOwner').value = task.owner;
         document.getElementById('editDepartment').value = task.department || '';
+        document.getElementById('editSource').value = task.source || '';
         document.getElementById('editDeadline').value = task.deadline;
         document.getElementById('editProgress').value = task.progress || '';
         document.getElementById('editStatus').checked = task.status === 'close';
@@ -277,6 +319,7 @@ const App = {
         const content = document.getElementById('editContent').value.trim();
         const owner = document.getElementById('editOwner').value.trim();
         const department = document.getElementById('editDepartment').value.trim();
+        const source = document.getElementById('editSource').value.trim();
         const deadline = document.getElementById('editDeadline').value;
         const progress = document.getElementById('editProgress').value.trim();
         const isCompleted = document.getElementById('editStatus').checked;
@@ -295,6 +338,7 @@ const App = {
             content,
             owner,
             department,
+            source,
             deadline,
             progress,
             status: isCompleted ? 'close' : this.calculateStatus({ deadline, status: 'ongoing' })
@@ -313,9 +357,11 @@ const App = {
         this.tasks = TaskStorage.getTasks();
         // 清除缓存，确保重新渲染
         this.virtualScroll.filterCacheKey = '';
+        this.virtualScroll.filteredTasks = [];
         this.renderCache = {};
         this.closeEditModal();
-        this.render();
+        // 直接调用 renderCore 绕过节流
+        this.renderCore();
     },
 
     // 显示删除确认弹窗
@@ -452,7 +498,7 @@ const App = {
         this.updateChartsCore();
     },
 
-    // 更新责任人和部门数据列表（用于下拉提示）
+    // 更新责任人、部门和来源数据列表（用于下拉提示）
     updateOwnerDatalist() {
         const owners = [...new Set(this.tasks.map(t => t.owner))];
         const ownerDatalist = document.getElementById('ownerList');
@@ -465,11 +511,17 @@ const App = {
         if (deptDatalist) {
             deptDatalist.innerHTML = departments.map(d => `<option value="${d}">`).join('');
         }
+
+        const sources = [...new Set(this.tasks.map(t => t.source).filter(s => s))];
+        const sourceDatalist = document.getElementById('sourceList');
+        if (sourceDatalist) {
+            sourceDatalist.innerHTML = sources.map(s => `<option value="${s}">`).join('');
+        }
     },
 
     // 获取筛选后的任务（带缓存）
     getFilteredTasks() {
-        const cacheKey = `${this.currentFilter}-${this.tasks.length}`;
+        const cacheKey = `${this.currentFilter}-${this.departmentFilter}-${this.createdDateStart}-${this.createdDateEnd}-${this.deadlineDateStart}-${this.deadlineDateEnd}-${this.tasks.length}`;
 
         if (this.virtualScroll.filterCacheKey === cacheKey) {
             return this.virtualScroll.filteredTasks;
@@ -477,8 +529,32 @@ const App = {
 
         let filteredTasks = this.tasks;
 
+        // 状态筛选
         if (this.currentFilter !== 'all') {
-            filteredTasks = this.tasks.filter(t => t.status === this.currentFilter);
+            filteredTasks = filteredTasks.filter(t => t.status === this.currentFilter);
+        }
+
+        // 部门筛选
+        if (this.departmentFilter) {
+            filteredTasks = filteredTasks.filter(t => (t.department || '未分配') === this.departmentFilter);
+        }
+
+        // 创建时间筛选
+        if (this.createdDateStart) {
+            filteredTasks = filteredTasks.filter(t => t.createdAt >= this.createdDateStart);
+        }
+        if (this.createdDateEnd) {
+            const endDate = new Date(this.createdDateEnd);
+            endDate.setHours(23, 59, 59, 999);
+            filteredTasks = filteredTasks.filter(t => new Date(t.createdAt) <= endDate);
+        }
+
+        // 截止日期筛选
+        if (this.deadlineDateStart) {
+            filteredTasks = filteredTasks.filter(t => t.deadline >= this.deadlineDateStart);
+        }
+        if (this.deadlineDateEnd) {
+            filteredTasks = filteredTasks.filter(t => t.deadline <= this.deadlineDateEnd);
         }
 
         // 排序：延期任务置顶，然后按deadline排序
@@ -492,6 +568,75 @@ const App = {
         this.virtualScroll.filterCacheKey = cacheKey;
 
         return filteredTasks;
+    },
+
+    // 部门下钻筛选
+    filterByDepartment(department) {
+        if (this.departmentFilter === department) {
+            // 如果已经筛选了该部门，则取消筛选
+            this.departmentFilter = null;
+        } else {
+            this.departmentFilter = department;
+        }
+        this.virtualScroll.filterCacheKey = '';
+        this.renderCache = {};
+        this.updateFilterDisplay();
+        this.renderTaskList();
+    },
+
+    // 更新筛选显示
+    updateFilterDisplay() {
+        const filterInfo = document.getElementById('filterInfo');
+        if (!filterInfo) return;
+
+        const filters = [];
+        if (this.departmentFilter) {
+            filters.push(`部门: ${this.departmentFilter}`);
+        }
+        if (this.createdDateStart || this.createdDateEnd) {
+            const start = this.createdDateStart || '不限';
+            const end = this.createdDateEnd || '不限';
+            filters.push(`创建时间: ${start} ~ ${end}`);
+        }
+        if (this.deadlineDateStart || this.deadlineDateEnd) {
+            const start = this.deadlineDateStart || '不限';
+            const end = this.deadlineDateEnd || '不限';
+            filters.push(`截止日期: ${start} ~ ${end}`);
+        }
+
+        if (filters.length > 0) {
+            filterInfo.innerHTML = `
+                <span class="filter-active">当前筛选: ${filters.join(' | ')}</span>
+                <button class="btn btn-secondary btn-small" id="clearFilters">清除筛选</button>
+            `;
+            filterInfo.style.display = 'flex';
+        } else {
+            filterInfo.style.display = 'none';
+        }
+    },
+
+    // 清除所有筛选
+    clearAllFilters() {
+        this.departmentFilter = null;
+        this.createdDateStart = null;
+        this.createdDateEnd = null;
+        this.deadlineDateStart = null;
+        this.deadlineDateEnd = null;
+
+        // 清除时间筛选输入框
+        const createdStart = document.getElementById('createdDateStart');
+        const createdEnd = document.getElementById('createdDateEnd');
+        const deadlineStart = document.getElementById('deadlineDateStart');
+        const deadlineEnd = document.getElementById('deadlineDateEnd');
+        if (createdStart) createdStart.value = '';
+        if (createdEnd) createdEnd.value = '';
+        if (deadlineStart) deadlineStart.value = '';
+        if (deadlineEnd) deadlineEnd.value = '';
+
+        this.virtualScroll.filterCacheKey = '';
+        this.renderCache = {};
+        this.updateFilterDisplay();
+        this.renderTaskList();
     },
 
     // 处理虚拟滚动
@@ -563,6 +708,7 @@ const App = {
             }
 
             const department = task.department ? `<span>🏢 ${this.escapeHtml(task.department)}</span>` : '';
+            const source = task.source ? `<span>📌 ${this.escapeHtml(task.source)}</span>` : '';
             const progress = task.progress ? `<span>📝 ${this.escapeHtml(task.progress)}</span>` : '';
 
             // 生成进展历史 HTML
@@ -597,6 +743,7 @@ const App = {
                         <div class="task-meta">
                             <span>👤 ${this.escapeHtml(task.owner)}</span>
                             ${department}
+                            ${source}
                             <span>📅 ${task.deadline}</span>
                             ${badge}
                             ${historyIndicator}

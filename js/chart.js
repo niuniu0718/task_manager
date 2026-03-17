@@ -114,6 +114,16 @@ const ChartManager = {
                     animation: {
                         duration: 300
                     },
+                    onClick: (event, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            const department = this.ownerChart.data.labels[index];
+                            // 触发下钻筛选
+                            if (typeof App !== 'undefined' && App.filterByDepartment) {
+                                App.filterByDepartment(department);
+                            }
+                        }
+                    },
                     plugins: {
                         legend: {
                             display: true,
@@ -138,11 +148,14 @@ const ChartManager = {
 
                                     if (total > 0) {
                                         const delayRate = ((delayed / total) * 100).toFixed(1);
-                                        return [`延期率: ${delayRate}%`];
+                                        return [`延期率: ${delayRate}%`, '', '点击查看该部门任务'];
                                     }
                                     return [];
                                 }
                             }
+                        },
+                        title: {
+                            display: false
                         }
                     },
                     scales: {
