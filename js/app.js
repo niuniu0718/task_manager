@@ -28,8 +28,30 @@ const App = {
     lastRenderTime: 0,
     renderCache: {},
 
+    // 虚拟滚动配置
+    virtualScroll: {
+        itemHeight: 95,          // 每个任务卡片的估计高度
+        bufferSize: 5,           // 上下缓冲区数量
+        visibleStart: 0,         // 当前可见区域起始索引
+        visibleEnd: 20,          // 当前可见区域结束索引
+        filteredTasks: [],       // 缓存筛选后的任务
+        filterCacheKey: '',      // 筛选缓存键
+    },
+
     // 初始化应用
     init() {
+        // 检查存储是否可用
+        if (!TaskStorage.isAvailable) {
+            alert('警告：浏览器存储功能不可用！\n\n可能原因：\n1. 使用了隐私/无痕模式\n2. 浏览器安全设置禁用了存储\n\n请关闭隐私模式或更换浏览器。');
+        }
+
+        // 初始化节流渲染函数（确保 this 正确绑定）
+        this._renderThrottled = throttle(() => {
+            requestAnimationFrame(() => {
+                this.renderCore();
+            });
+        }, 100);
+
         this.tasks = TaskStorage.getTasks();
         this.updateAllTaskStatus();
         ChartManager.init();
@@ -89,9 +111,18 @@ const App = {
                 document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
                 e.target.classList.add('active');
                 this.currentFilter = e.target.dataset.filter;
+                // 重置虚拟滚动状态
+                this.virtualScroll.visibleStart = 0;
+                this.virtualScroll.filterCacheKey = '';
                 this.renderTaskList();
             });
         });
+
+        // 虚拟滚动事件
+        const taskList = document.getElementById('taskList');
+        taskList.addEventListener('scroll', throttle(() => {
+            this.handleVirtualScroll();
+        }, 16)); // 约60fps
 
         // 删除确认弹窗
         document.getElementById('cancelDelete').addEventListener('click', () => {
@@ -274,12 +305,12 @@ const App = {
         this.updateOwnerDatalist();
     },
 
-    // 渲染整个界面 - 使用节流优化
-    render: throttle(function() {
-        requestAnimationFrame(() => {
-            this.renderCore();
-        });
-    }, 100),
+    // 渲染整个界面（绑定 this）
+    render() {
+        if (this._renderThrottled) {
+            this._renderThrottled();
+        }
+    },
 
     // 更新关键指标
     updateMetrics() {
@@ -316,7 +347,7 @@ const App = {
     // 更新部门统计表 - 使用缓存
     updateOwnerTable() {
         const cacheKey = JSON.stringify(this.tasks.map(t => ({ d: t.department, s: t.status })));
-        if (this.renderCache.deptTable === cacheKey) return;
+        if (this.renderCache.deptTable === cacheKey) return this.renderCache.deptTableData;
         this.renderCache.deptTable = cacheKey;
 
         const deptStats = {};
@@ -330,28 +361,36 @@ const App = {
             deptStats[dept][task.status]++;
         });
 
-        // 按延期数量排序
+        // 按延期率排序
         const sortedDepts = Object.entries(deptStats)
-            .map(([department, stats]) => ({ department, ...stats }))
-            .sort((a, b) => b.delay - a.delay);
+            .map(([department, stats]) => {
+                const delayRate = stats.total > 0 ? ((stats.delay / stats.total) * 100).toFixed(1) : 0;
+                return { department, ...stats, delayRate };
+            })
+            .sort((a, b) => b.delayRate - a.delayRate);
 
         const tbody = document.getElementById('ownerTableBody');
 
         if (sortedDepts.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="empty-state">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无数据</td></tr>';
             return;
         }
 
-        tbody.innerHTML = sortedDepts.map(d => `
+        tbody.innerHTML = sortedDepts.map(d => {
+            const delayRateClass = d.delayRate > 30 ? 'style="color: var(--color-delay); font-weight: 600;"' :
+                                   d.delayRate > 10 ? 'style="color: var(--color-warning);"' : '';
+            return `
             <tr>
                 <td>${this.escapeHtml(d.department)}</td>
                 <td>${d.total}</td>
                 <td style="color: var(--color-ongoing)">${d.ongoing}</td>
                 <td style="color: var(--color-delay)">${d.delay}</td>
                 <td style="color: var(--color-close)">${d.close}</td>
+                <td ${delayRateClass}>${d.delayRate}%</td>
             </tr>
-        `).join('');
+        `}).join('');
 
+        this.renderCache.deptTableData = sortedDepts;
         return sortedDepts;
     },
 
@@ -361,16 +400,18 @@ const App = {
         const delayed = this.tasks.filter(t => t.status === 'delay').length;
         const completed = this.tasks.filter(t => t.status === 'close').length;
 
+        // 设置任务数量用于动画优化
+        ChartManager.setTaskCount(this.tasks.length);
         ChartManager.updateStatusChart(ongoing, delayed, completed);
 
         const ownerData = this.updateOwnerTable() || [];
         ChartManager.updateOwnerChart(ownerData);
     },
 
-    // 更新图表 - 使用防抖优化
-    updateCharts: debounce(function() {
+    // 更新图表
+    updateCharts() {
         this.updateChartsCore();
-    }, 200),
+    },
 
     // 更新责任人和部门数据列表（用于下拉提示）
     updateOwnerDatalist() {
@@ -387,9 +428,13 @@ const App = {
         }
     },
 
-    // 渲染任务列表 - 使用DocumentFragment优化
-    renderTaskList() {
-        const taskList = document.getElementById('taskList');
+    // 获取筛选后的任务（带缓存）
+    getFilteredTasks() {
+        const cacheKey = `${this.currentFilter}-${this.tasks.length}`;
+
+        if (this.virtualScroll.filterCacheKey === cacheKey) {
+            return this.virtualScroll.filteredTasks;
+        }
 
         let filteredTasks = this.tasks;
 
@@ -398,27 +443,60 @@ const App = {
         }
 
         // 排序：延期任务置顶，然后按deadline排序
-        filteredTasks.sort((a, b) => {
+        filteredTasks = [...filteredTasks].sort((a, b) => {
             if (a.status === 'delay' && b.status !== 'delay') return -1;
             if (a.status !== 'delay' && b.status === 'delay') return 1;
             return new Date(a.deadline) - new Date(b.deadline);
         });
 
-        if (filteredTasks.length === 0) {
-            taskList.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-icon">📭</div>
-                    <p>暂无任务</p>
-                </div>
-            `;
-            return;
-        }
+        this.virtualScroll.filteredTasks = filteredTasks;
+        this.virtualScroll.filterCacheKey = cacheKey;
 
-        // 使用DocumentFragment减少DOM操作
+        return filteredTasks;
+    },
+
+    // 处理虚拟滚动
+    handleVirtualScroll() {
+        const taskList = document.getElementById('taskList');
+        const scrollTop = taskList.scrollTop;
+        const containerHeight = taskList.clientHeight;
+
+        const filteredTasks = this.virtualScroll.filteredTasks;
+        const totalItems = filteredTasks.length;
+
+        if (totalItems === 0) return;
+
+        const { itemHeight, bufferSize } = this.virtualScroll;
+
+        // 计算当前可见区域
+        const newStart = Math.max(0, Math.floor(scrollTop / itemHeight) - bufferSize);
+        const newEnd = Math.min(totalItems, Math.ceil((scrollTop + containerHeight) / itemHeight) + bufferSize);
+
+        // 只有当可见区域变化时才重新渲染
+        if (newStart !== this.virtualScroll.visibleStart || newEnd !== this.virtualScroll.visibleEnd) {
+            this.virtualScroll.visibleStart = newStart;
+            this.virtualScroll.visibleEnd = newEnd;
+            this.renderVisibleTasks(filteredTasks);
+        }
+    },
+
+    // 渲染可见的任务
+    renderVisibleTasks(filteredTasks) {
+        const taskList = document.getElementById('taskList');
+        const { itemHeight, visibleStart, visibleEnd } = this.virtualScroll;
+        const totalItems = filteredTasks.length;
+
+        // 设置总高度（使用 padding 撑起滚动区域）
+        const totalHeight = totalItems * itemHeight;
+        const paddingTop = visibleStart * itemHeight;
+
+        // 使用 DocumentFragment 减少 DOM 操作
         const fragment = document.createDocumentFragment();
         const tempDiv = document.createElement('div');
 
-        filteredTasks.forEach(task => {
+        const visibleTasks = filteredTasks.slice(visibleStart, visibleEnd);
+
+        visibleTasks.forEach(task => {
             const statusClass = `status-${task.status}`;
             let badge = '';
 
@@ -431,7 +509,6 @@ const App = {
                 badge = '<span class="task-badge warning">⏰ 即将到期</span>';
             }
 
-            // 根据任务状态显示不同的按钮
             let actionButtons = '';
             if (task.status === 'close') {
                 actionButtons = `
@@ -450,7 +527,7 @@ const App = {
             const progress = task.progress ? `<span>📝 ${this.escapeHtml(task.progress)}</span>` : '';
 
             tempDiv.innerHTML = `
-                <div class="task-card ${statusClass}">
+                <div class="task-card ${statusClass}" style="height: ${itemHeight - 12}px;">
                     <div class="task-content">
                         <div class="task-title">${this.escapeHtml(task.content)}</div>
                         <div class="task-meta">
@@ -469,8 +546,41 @@ const App = {
             fragment.appendChild(tempDiv.firstElementChild);
         });
 
+        // 创建容器并设置 padding
+        const wrapper = document.createElement('div');
+        wrapper.style.paddingTop = `${paddingTop}px`;
+        wrapper.style.minHeight = `${totalHeight - paddingTop}px`;
+        wrapper.appendChild(fragment);
+
         taskList.innerHTML = '';
-        taskList.appendChild(fragment);
+        taskList.appendChild(wrapper);
+    },
+
+    // 渲染任务列表 - 使用虚拟滚动优化
+    renderTaskList() {
+        const taskList = document.getElementById('taskList');
+        const filteredTasks = this.getFilteredTasks();
+
+        if (filteredTasks.length === 0) {
+            taskList.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">📭</div>
+                    <p>暂无任务</p>
+                </div>
+            `;
+            return;
+        }
+
+        // 重置滚动位置
+        this.virtualScroll.visibleStart = 0;
+        const containerHeight = taskList.clientHeight || 500;
+        this.virtualScroll.visibleEnd = Math.ceil(containerHeight / this.virtualScroll.itemHeight) + this.virtualScroll.bufferSize * 2;
+
+        // 渲染可见任务
+        this.renderVisibleTasks(filteredTasks);
+
+        // 滚动到顶部
+        taskList.scrollTop = 0;
     },
 
     // HTML转义

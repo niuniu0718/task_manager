@@ -5,6 +5,16 @@ const BulkImport = {
 
     // 初始化
     init() {
+        // 检查 XLSX 库是否加载
+        if (typeof XLSX === 'undefined') {
+            console.error('XLSX 库未加载，批量导入功能不可用');
+            // 延迟检查，可能是网络慢
+            setTimeout(() => {
+                if (typeof XLSX === 'undefined') {
+                    console.warn('XLSX 库仍未加载，请检查网络连接');
+                }
+            }, 3000);
+        }
         this.bindEvents();
     },
 
@@ -87,6 +97,13 @@ const BulkImport = {
 
     // 处理文件
     handleFile(file) {
+        // 检查 XLSX 库是否加载
+        if (typeof XLSX === 'undefined') {
+            alert('文件解析库未加载！\n\n可能原因：\n1. 网络连接问题\n2. CDN 资源被阻止\n\n请检查网络连接或刷新页面重试。');
+            this.clearFile();
+            return;
+        }
+
         const fileName = file.name.toLowerCase();
         const isValidFormat = fileName.endsWith('.xlsx') || fileName.endsWith('.csv');
 
@@ -110,15 +127,23 @@ const BulkImport = {
                 this.previewData = this.validateData(data);
                 this.showPreview();
             } catch (error) {
-                alert('文件解析失败：' + error.message);
+                console.error('文件解析错误:', error);
+                alert('文件解析失败：' + error.message + '\n\n请确保文件格式正确。');
                 this.clearFile();
             }
+        };
+        reader.onerror = () => {
+            alert('文件读取失败，请重试。');
+            this.clearFile();
         };
         reader.readAsBinaryString(file);
     },
 
     // 解析文件
     parseFile(data, fileName) {
+        if (typeof XLSX === 'undefined') {
+            throw new Error('XLSX 库未加载');
+        }
         const workbook = XLSX.read(data, { type: 'binary' });
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
@@ -303,6 +328,12 @@ const BulkImport = {
 
     // 确认导入
     confirmImport() {
+        // 检查存储是否可用
+        if (!TaskStorage.isAvailable) {
+            alert('存储功能不可用！请关闭隐私模式或检查浏览器设置。');
+            return;
+        }
+
         const overwrite = document.getElementById('overwriteMode').checked;
 
         // 只导入没有错误的数据
@@ -326,11 +357,17 @@ const BulkImport = {
         }));
 
         // 执行导入
+        let success = false;
         if (overwrite) {
-            TaskStorage.saveTasks(tasks);
+            success = TaskStorage.saveTasks(tasks);
         } else {
             const existingTasks = TaskStorage.getTasks();
-            TaskStorage.saveTasks([...existingTasks, ...tasks]);
+            success = TaskStorage.saveTasks([...existingTasks, ...tasks]);
+        }
+
+        if (!success) {
+            alert('导入失败，数据保存出错。请检查浏览器存储设置。');
+            return;
         }
 
         // 显示结果
