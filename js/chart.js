@@ -2,6 +2,7 @@
 const ChartManager = {
     statusChart: null,
     ownerChart: null,
+    personChart: null,
     lastUpdateData: null,
     chartAvailable: false,
     taskCount: 0,  // 用于判断是否关闭动画
@@ -254,5 +255,157 @@ const ChartManager = {
 
         this.initStatusChart();
         this.initOwnerChart();
+        this.initPersonChart();
+    },
+
+    // 初始化责任人分布堆叠柱状图
+    initPersonChart() {
+        if (!this.chartAvailable) return;
+
+        const ctx = document.getElementById('personChart');
+        if (!ctx) return;
+
+        try {
+            this.personChart = new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: '进行中',
+                            data: [],
+                            backgroundColor: '#3B82F6',
+                            borderRadius: 4,
+                            stack: 'stack0'
+                        },
+                        {
+                            label: '已延期',
+                            data: [],
+                            backgroundColor: '#EF4444',
+                            borderRadius: 4,
+                            stack: 'stack0'
+                        },
+                        {
+                            label: '已完成',
+                            data: [],
+                            backgroundColor: '#10B981',
+                            borderRadius: 4,
+                            stack: 'stack0'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    animation: {
+                        duration: 300
+                    },
+                    onClick: (event, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            const owner = this.personChart.data.labels[index];
+                            // 触发下钻筛选（按责任人筛选）
+                            if (typeof App !== 'undefined' && App.filterByOwner) {
+                                App.filterByOwner(owner);
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 12,
+                                padding: 8,
+                                font: { size: 10 }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                afterBody: function(context) {
+                                    const dataIndex = context[0].dataIndex;
+                                    const chart = context[0].chart;
+                                    const datasets = chart.data.datasets;
+
+                                    const ongoing = datasets[0].data[dataIndex] || 0;
+                                    const delayed = datasets[1].data[dataIndex] || 0;
+                                    const completed = datasets[2].data[dataIndex] || 0;
+                                    const total = ongoing + delayed + completed;
+
+                                    if (total > 0) {
+                                        const delayRate = ((delayed / total) * 100).toFixed(1);
+                                        return [`延期率: ${delayRate}%`, '', '点击查看该责任人任务'];
+                                    }
+                                    return [];
+                                }
+                            }
+                        },
+                        title: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 0,
+                                font: { size: 10 },
+                                callback: function(value, index) {
+                                    const label = this.getLabelForValue(value);
+                                    // 截断过长的责任人名称
+                                    if (label && label.length > 6) {
+                                        return label.substring(0, 6) + '...';
+                                    }
+                                    return label;
+                                }
+                            }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            ticks: { stepSize: 1 }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('初始化责任人图表失败:', error);
+            this.personChart = null;
+        }
+    },
+
+    // 更新责任人堆叠柱状图 - 只在数据变化时更新
+    updatePersonChart(personData) {
+        if (!this.chartAvailable || !this.personChart) return;
+
+        const newLabels = personData.map(p => p.owner);
+        const newOngoing = personData.map(p => p.ongoing);
+        const newDelayed = personData.map(p => p.delay);
+        const newCompleted = personData.map(p => p.close);
+
+        // 检查数据是否真的变化了
+        const currentLabels = this.personChart.data.labels;
+        const currentOngoing = this.personChart.data.datasets[0].data;
+        const currentDelayed = this.personChart.data.datasets[1].data;
+        const currentCompleted = this.personChart.data.datasets[2].data;
+
+        const labelsChanged = JSON.stringify(newLabels) !== JSON.stringify(currentLabels);
+        const dataChanged =
+            JSON.stringify(newOngoing) !== JSON.stringify(currentOngoing) ||
+            JSON.stringify(newDelayed) !== JSON.stringify(currentDelayed) ||
+            JSON.stringify(newCompleted) !== JSON.stringify(currentCompleted);
+
+        if (!labelsChanged && !dataChanged) return;
+
+        this.personChart.data.labels = newLabels;
+        this.personChart.data.datasets[0].data = newOngoing;
+        this.personChart.data.datasets[1].data = newDelayed;
+        this.personChart.data.datasets[2].data = newCompleted;
+
+        // 大数据量时关闭动画
+        const animationDuration = this.taskCount > 500 ? 0 : 300;
+        this.personChart.options.animation.duration = animationDuration;
+        this.personChart.update(animationDuration === 0 ? 'none' : 'default');
     }
 };

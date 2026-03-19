@@ -69,6 +69,26 @@
                 </table>
             </div>
 
+            <!-- 责任人统计 -->
+            <div class="owner-stats person-stats">
+                <h3>👤 责任人分布</h3>
+                <table class="owner-table">
+                    <thead>
+                        <tr>
+                            <th>责任人</th>
+                            <th>总数</th>
+                            <th>进行中</th>
+                            <th>延期</th>
+                            <th>已完成</th>
+                            <th>延期率</th>
+                        </tr>
+                    </thead>
+                    <tbody id="personTableBody">
+                        <tr><td colspan="6" class="empty-state">暂无数据</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
             <!-- 可视化图表 -->
             <div class="charts">
                 <div class="chart-container">
@@ -78,6 +98,10 @@
                 <div class="chart-container">
                     <h3>部门任务分布</h3>
                     <canvas id="ownerChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3>责任人任务分布</h3>
+                    <canvas id="personChart"></canvas>
                 </div>
             </div>
         </section>
@@ -173,6 +197,7 @@
                                             <th>任务内容</th>
                                             <th>责任人</th>
                                             <th>部门</th>
+                                            <th>来源</th>
                                             <th>计划完成时间</th>
                                             <th>最新进展</th>
                                             <th>任务状态</th>
@@ -212,6 +237,12 @@
 
             <!-- 时间筛选 -->
             <div class="time-filter">
+                <div class="time-filter-group year-filter-group">
+                    <label>创建年份:</label>
+                    <div class="year-buttons" id="yearButtons">
+                        <!-- 年份按钮将由JS动态生成 -->
+                    </div>
+                </div>
                 <div class="time-filter-group">
                     <label>创建时间:</label>
                     <input type="date" id="createdDateStart" placeholder="开始日期">

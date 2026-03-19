@@ -52,14 +52,64 @@ header h1 {
 /* Dashboard */
 .dashboard {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: auto auto;
     gap: 20px;
     margin-bottom: 30px;
 }
 
-@media (max-width: 1200px) {
+/* 指标卡片 - 占满第一行 */
+.metrics {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 15px;
+}
+
+/* 部门统计 - 占 2 列 */
+.owner-stats {
+    grid-column: span 2;
+}
+
+/* 责任人分布 - 占 2 列 */
+.person-stats {
+    grid-column: span 2;
+}
+
+/* 图表区域 - 占满一行 */
+.charts {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+}
+
+@media (max-width: 1400px) {
     .dashboard {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .metrics {
+        grid-template-columns: repeat(4, 1fr);
+    }
+
+    .owner-stats,
+    .person-stats {
+        grid-column: span 1;
+    }
+
+    .charts {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 1000px) {
+    .metrics {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .charts {
+        grid-template-columns: 1fr;
     }
 }
 
@@ -67,13 +117,11 @@ header h1 {
     .dashboard {
         grid-template-columns: 1fr;
     }
-}
 
-/* Metrics */
-.metrics {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 15px;
+    .owner-stats,
+    .person-stats {
+        grid-column: span 1;
+    }
 }
 
 .metric-card {
@@ -162,11 +210,6 @@ header h1 {
 }
 
 /* Charts */
-.charts {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-}
 
 .chart-container {
     background: var(--color-card);
@@ -912,6 +955,39 @@ header h1 {
 .time-filter-group span {
     color: var(--color-text-light);
     font-size: 0.85rem;
+}
+
+/* 年份筛选按钮 */
+.year-filter-group {
+    flex-basis: 100%;
+}
+
+.year-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.year-btn {
+    padding: 5px 12px;
+    border: 1px solid var(--color-border);
+    background: var(--color-card);
+    border-radius: 15px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--color-text-light);
+}
+
+.year-btn:hover {
+    border-color: var(--color-ongoing);
+    color: var(--color-ongoing);
+}
+
+.year-btn.active {
+    background: var(--color-ongoing);
+    color: white;
+    border-color: var(--color-ongoing);
 }
 
 /* 筛选信息 */

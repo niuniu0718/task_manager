@@ -162,6 +162,7 @@ const BulkImport = {
                 content: this.trimValue(row['任务内容'] || row['content'] || ''),
                 owner: this.trimValue(row['责任人'] || row['owner'] || ''),
                 department: this.trimValue(row['部门'] || row['department'] || ''),
+                source: this.trimValue(row['来源'] || row['source'] || ''),
                 deadline: this.parseDate(row['计划完成时间'] || row['deadline'] || ''),
                 progress: this.trimValue(row['最新进展'] || row['progress'] || ''),
                 status: this.parseStatus(row['任务状态'] || row['status'] || ''),
@@ -295,6 +296,7 @@ const BulkImport = {
                         ${item.errors.filter(e => e.includes('责任人')).map(e => `<span class="error-hint">⚠️ ${e}</span>`).join('')}
                     </td>
                     <td>${this.escapeHtml(item.department)}</td>
+                    <td>${this.escapeHtml(item.source)}</td>
                     <td>
                         ${item.deadline}
                         ${item.errors.filter(e => e.includes('日期')).map(e => `<span class="error-hint">⚠️ ${e}</span>`).join('')}
@@ -350,6 +352,7 @@ const BulkImport = {
             content: item.content,
             owner: item.owner,
             department: item.department,
+            source: item.source,
             deadline: item.deadline,
             progress: item.progress,
             status: item.status,
@@ -415,6 +418,7 @@ const BulkImport = {
                 '任务内容': '完成需求文档',
                 '责任人': '张三',
                 '部门': '研发部',
+                '来源': '产品需求',
                 '计划完成时间': '2026-03-15',
                 '最新进展': '已完成初稿',
                 '任务状态': ''
@@ -423,6 +427,7 @@ const BulkImport = {
                 '任务内容': '代码审查',
                 '责任人': '李四',
                 '部门': '研发部',
+                '来源': '内部评审',
                 '计划完成时间': '2026-03-20',
                 '最新进展': '进行中',
                 '任务状态': 'ongoing'
@@ -431,6 +436,7 @@ const BulkImport = {
                 '任务内容': '测试用例编写',
                 '责任人': '王五',
                 '部门': '测试部',
+                '来源': '质量保障',
                 '计划完成时间': '2026-03-10',
                 '最新进展': '已完成',
                 '任务状态': 'close'
@@ -457,6 +463,7 @@ const BulkImport = {
             '任务内容': task.content,
             '责任人': task.owner,
             '部门': task.department || '',
+            '来源': task.source || '',
             '计划完成时间': task.deadline,
             '最新进展': task.progress || '',
             '任务状态': task.status,

@@ -24,6 +24,7 @@ const App = {
     tasks: [],
     currentFilter: 'all',
     departmentFilter: null,      // 部门筛选
+    yearFilter: null,            // 年度筛选
     createdDateStart: null,      // 创建时间起始
     createdDateEnd: null,        // 创建时间结束
     deadlineDateStart: null,     // 截止日期起始
@@ -60,10 +61,48 @@ const App = {
         this.tasks = TaskStorage.getTasks();
         this.updateAllTaskStatus();
         ChartManager.init();
+        this.initYearButtons();
         this.render();
         this.bindEvents();
         // 改为每5分钟刷新一次，减少CPU占用
         this.startAutoRefresh();
+    },
+
+    // 初始化年份按钮
+    initYearButtons() {
+        const years = this.getAvailableYears();
+        const container = document.getElementById('yearButtons');
+        if (!container) return;
+
+        // 添加"全部"按钮
+        let html = `<button class="year-btn active" data-year="">全部</button>`;
+
+        // 添加各年份按钮
+        years.forEach(year => {
+            html += `<button class="year-btn" data-year="${year}">${year}年</button>`;
+        });
+
+        container.innerHTML = html;
+    },
+
+    // 获取可用的年份列表
+    getAvailableYears() {
+        const currentYear = new Date().getFullYear();
+        const years = new Set();
+
+        // 从任务数据中提取年份
+        this.tasks.forEach(task => {
+            if (task.createdAt) {
+                const year = new Date(task.createdAt).getFullYear();
+                years.add(year);
+            }
+        });
+
+        // 确保当前年份在列表中
+        years.add(currentYear);
+
+        // 按降序排列
+        return Array.from(years).sort((a, b) => b - a);
     },
 
     // 更新所有任务状态
@@ -121,6 +160,20 @@ const App = {
                 this.virtualScroll.filterCacheKey = '';
                 this.renderTaskList();
             });
+        });
+
+        // 年份筛选按钮（事件委托）
+        document.getElementById('yearButtons').addEventListener('click', (e) => {
+            if (e.target.classList.contains('year-btn')) {
+                document.querySelectorAll('.year-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                this.yearFilter = e.target.dataset.year || null;
+                // 重置虚拟滚动状态
+                this.virtualScroll.visibleStart = 0;
+                this.virtualScroll.filterCacheKey = '';
+                this.updateFilterDisplay();
+                this.renderTaskList();
+            }
         });
 
         // 虚拟滚动事件
@@ -385,6 +438,7 @@ const App = {
     renderCore() {
         this.updateMetrics();
         this.updateOwnerTable();
+        this.updatePersonTable();
         this.updateChartsCore();
         this.renderTaskList();
         this.updateOwnerDatalist();
@@ -479,6 +533,68 @@ const App = {
         return sortedDepts;
     },
 
+    // 解析责任人（支持逗号分隔）
+    parseOwners(ownerStr) {
+        if (!ownerStr) return ['未分配'];
+        // 支持中文逗号、英文逗号、分号分隔
+        return ownerStr.split(/[,，;；]/)
+            .map(o => o.trim())
+            .filter(o => o.length > 0);
+    },
+
+    // 更新责任人统计表 - 支持多责任人
+    updatePersonTable() {
+        const cacheKey = JSON.stringify(this.tasks.map(t => ({ o: t.owner, s: t.status })));
+        if (this.renderCache.personTable === cacheKey) return this.renderCache.personTableData;
+        this.renderCache.personTable = cacheKey;
+
+        const personStats = {};
+
+        this.tasks.forEach(task => {
+            const owners = this.parseOwners(task.owner);
+            owners.forEach(owner => {
+                const name = owner || '未分配';
+                if (!personStats[name]) {
+                    personStats[name] = { total: 0, ongoing: 0, delay: 0, close: 0 };
+                }
+                personStats[name].total++;
+                personStats[name][task.status]++;
+            });
+        });
+
+        // 按延期率排序
+        const sortedPersons = Object.entries(personStats)
+            .map(([owner, stats]) => {
+                const delayRate = stats.total > 0 ? ((stats.delay / stats.total) * 100).toFixed(1) : 0;
+                return { owner, ...stats, delayRate };
+            })
+            .sort((a, b) => b.delayRate - a.delayRate);
+
+        const tbody = document.getElementById('personTableBody');
+
+        if (sortedPersons.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无数据</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = sortedPersons.map(p => {
+            const delayRateClass = p.delayRate > 30 ? 'style="color: var(--color-delay); font-weight: 600;"' :
+                                   p.delayRate > 10 ? 'style="color: var(--color-warning);"' : '';
+            return `
+            <tr>
+                <td>${this.escapeHtml(p.owner)}</td>
+                <td>${p.total}</td>
+                <td style="color: var(--color-ongoing)">${p.ongoing}</td>
+                <td style="color: var(--color-delay)">${p.delay}</td>
+                <td style="color: var(--color-close)">${p.close}</td>
+                <td ${delayRateClass}>${p.delayRate}%</td>
+            </tr>
+        `}).join('');
+
+        this.renderCache.personTableData = sortedPersons;
+        return sortedPersons;
+    },
+
     // 更新图表核心逻辑
     updateChartsCore() {
         const ongoing = this.tasks.filter(t => t.status === 'ongoing').length;
@@ -491,6 +607,9 @@ const App = {
 
         const ownerData = this.updateOwnerTable() || [];
         ChartManager.updateOwnerChart(ownerData);
+
+        const personData = this.updatePersonTable() || [];
+        ChartManager.updatePersonChart(personData);
     },
 
     // 更新图表
@@ -521,7 +640,7 @@ const App = {
 
     // 获取筛选后的任务（带缓存）
     getFilteredTasks() {
-        const cacheKey = `${this.currentFilter}-${this.departmentFilter}-${this.createdDateStart}-${this.createdDateEnd}-${this.deadlineDateStart}-${this.deadlineDateEnd}-${this.tasks.length}`;
+        const cacheKey = `${this.currentFilter}-${this.departmentFilter}-${this.ownerFilter}-${this.yearFilter}-${this.createdDateStart}-${this.createdDateEnd}-${this.deadlineDateStart}-${this.deadlineDateEnd}-${this.tasks.length}`;
 
         if (this.virtualScroll.filterCacheKey === cacheKey) {
             return this.virtualScroll.filteredTasks;
@@ -537,6 +656,23 @@ const App = {
         // 部门筛选
         if (this.departmentFilter) {
             filteredTasks = filteredTasks.filter(t => (t.department || '未分配') === this.departmentFilter);
+        }
+
+        // 责任人筛选（支持多责任人匹配）
+        if (this.ownerFilter) {
+            filteredTasks = filteredTasks.filter(t => {
+                const owners = this.parseOwners(t.owner);
+                return owners.includes(this.ownerFilter);
+            });
+        }
+
+        // 年度筛选
+        if (this.yearFilter) {
+            filteredTasks = filteredTasks.filter(t => {
+                if (!t.createdAt) return false;
+                const year = new Date(t.createdAt).getFullYear();
+                return String(year) === this.yearFilter;
+            });
         }
 
         // 创建时间筛选
@@ -584,14 +720,37 @@ const App = {
         this.renderTaskList();
     },
 
+    // 责任人筛选状态
+    ownerFilter: null,
+
+    // 责任人下钻筛选
+    filterByOwner(owner) {
+        if (this.ownerFilter === owner) {
+            // 如果已经筛选了该责任人，则取消筛选
+            this.ownerFilter = null;
+        } else {
+            this.ownerFilter = owner;
+        }
+        this.virtualScroll.filterCacheKey = '';
+        this.renderCache = {};
+        this.updateFilterDisplay();
+        this.renderTaskList();
+    },
+
     // 更新筛选显示
     updateFilterDisplay() {
         const filterInfo = document.getElementById('filterInfo');
         if (!filterInfo) return;
 
         const filters = [];
+        if (this.yearFilter) {
+            filters.push(`年份: ${this.yearFilter}年`);
+        }
         if (this.departmentFilter) {
             filters.push(`部门: ${this.departmentFilter}`);
+        }
+        if (this.ownerFilter) {
+            filters.push(`责任人: ${this.ownerFilter}`);
         }
         if (this.createdDateStart || this.createdDateEnd) {
             const start = this.createdDateStart || '不限';
@@ -618,6 +777,8 @@ const App = {
     // 清除所有筛选
     clearAllFilters() {
         this.departmentFilter = null;
+        this.ownerFilter = null;
+        this.yearFilter = null;
         this.createdDateStart = null;
         this.createdDateEnd = null;
         this.deadlineDateStart = null;
@@ -632,6 +793,11 @@ const App = {
         if (createdEnd) createdEnd.value = '';
         if (deadlineStart) deadlineStart.value = '';
         if (deadlineEnd) deadlineEnd.value = '';
+
+        // 重置年份按钮
+        document.querySelectorAll('.year-btn').forEach(b => b.classList.remove('active'));
+        const allBtn = document.querySelector('.year-btn[data-year=""]');
+        if (allBtn) allBtn.classList.add('active');
 
         this.virtualScroll.filterCacheKey = '';
         this.renderCache = {};
