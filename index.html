@@ -72,21 +72,23 @@
             <!-- 责任人统计 -->
             <div class="owner-stats person-stats">
                 <h3>👤 责任人分布</h3>
-                <table class="owner-table">
-                    <thead>
-                        <tr>
-                            <th>责任人</th>
-                            <th>总数</th>
-                            <th>进行中</th>
-                            <th>延期</th>
-                            <th>已完成</th>
-                            <th>延期率</th>
-                        </tr>
-                    </thead>
-                    <tbody id="personTableBody">
-                        <tr><td colspan="6" class="empty-state">暂无数据</td></tr>
-                    </tbody>
-                </table>
+                <div class="table-wrapper">
+                    <table class="owner-table">
+                        <thead>
+                            <tr>
+                                <th>责任人</th>
+                                <th>总数</th>
+                                <th>进行中</th>
+                                <th>延期</th>
+                                <th>已完成</th>
+                                <th>延期率</th>
+                            </tr>
+                        </thead>
+                        <tbody id="personTableBody">
+                            <tr><td colspan="6" class="empty-state">暂无数据</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- 可视化图表 -->
@@ -163,9 +165,31 @@
                                 📥 下载导入模板
                             </button>
                             <button class="btn btn-secondary" id="exportData">
-                                📤 导出当前数据
+                                📤 导出全部数据
+                            </button>
+                            <button class="btn btn-secondary" id="toggleOwnerSelector">
+                                👥 按责任人导出
                             </button>
                         </div>
+                        <!-- 责任人多选面板 -->
+                        <div class="owner-selector-panel" id="ownerSelectorPanel" style="display: none;">
+                            <div class="owner-checkboxes" id="ownerCheckboxes"></div>
+                            <div class="owner-selector-actions">
+                                <button class="btn btn-small" id="selectAllOwners">全选</button>
+                                <button class="btn btn-small" id="deselectAllOwners">取消全选</button>
+                                <button class="btn btn-primary btn-small" id="exportSelectedOwners">📤 导出选中</button>
+                            </div>
+                        </div>
+                        <div class="template-actions" style="margin-top: 10px;">
+                            <button class="btn btn-primary" id="backupData">
+                                💾 备份数据
+                            </button>
+                            <button class="btn btn-secondary" id="restoreData">
+                                📂 恢复备份
+                            </button>
+                            <input type="file" id="backupFileInput" accept=".json" style="display: none;">
+                        </div>
+                        <div class="backup-info" id="backupInfo"></div>
 
                         <!-- 文件上传区 -->
                         <div class="upload-area" id="uploadArea">

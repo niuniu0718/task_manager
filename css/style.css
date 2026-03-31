@@ -76,6 +76,29 @@ header h1 {
     grid-column: span 2;
 }
 
+/* 责任人表格滚动容器 */
+.person-stats .table-wrapper {
+    max-height: 300px;
+    overflow-y: auto;
+    border-radius: 8px;
+    border: 1px solid var(--color-border);
+}
+
+.person-stats .owner-table {
+    margin: 0;
+}
+
+.person-stats .owner-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--color-bg);
+}
+
+.person-stats .owner-table thead th {
+    border-bottom: 2px solid var(--color-border);
+}
+
 /* 图表区域 - 占满一行 */
 .charts {
     grid-column: 1 / -1;
@@ -607,6 +630,82 @@ header h1 {
 .template-actions {
     display: flex;
     gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.export-select {
+    padding: 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    background: var(--color-card);
+    cursor: pointer;
+}
+
+/* 备份信息 */
+.backup-info {
+    margin-top: 10px;
+    padding: 10px 15px;
+    background: #D1FAE5;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: #065F46;
+    display: none;
+}
+
+.backup-info.show {
+    display: block;
+}
+
+/* 责任人选择面板 */
+.owner-selector-panel {
+    margin-top: 15px;
+    padding: 15px;
+    background: var(--color-bg);
+    border-radius: 8px;
+    border: 1px solid var(--color-border);
+}
+
+.owner-checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.owner-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+}
+
+.owner-checkbox:hover {
+    border-color: var(--color-ongoing);
+}
+
+.owner-checkbox.selected {
+    background: var(--color-ongoing);
+    color: white;
+    border-color: var(--color-ongoing);
+}
+
+.owner-checkbox input {
+    display: none;
+}
+
+.owner-selector-actions {
+    display: flex;
+    gap: 8px;
     flex-wrap: wrap;
 }
 

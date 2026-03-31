@@ -83,6 +83,44 @@ const BulkImport = {
         document.getElementById('exportData').addEventListener('click', () => {
             this.exportData();
         });
+
+        // 按责任人导出 - 切换面板
+        document.getElementById('toggleOwnerSelector').addEventListener('click', () => {
+            this.toggleOwnerSelector();
+        });
+
+        // 全选
+        document.getElementById('selectAllOwners').addEventListener('click', () => {
+            this.selectAllOwners(true);
+        });
+
+        // 取消全选
+        document.getElementById('deselectAllOwners').addEventListener('click', () => {
+            this.selectAllOwners(false);
+        });
+
+        // 导出选中的责任人
+        document.getElementById('exportSelectedOwners').addEventListener('click', () => {
+            this.exportSelectedOwners();
+        });
+
+        // 备份数据
+        document.getElementById('backupData').addEventListener('click', () => {
+            this.backupData();
+        });
+
+        // 恢复备份
+        document.getElementById('restoreData').addEventListener('click', () => {
+            document.getElementById('backupFileInput').click();
+        });
+
+        // 备份文件选择
+        document.getElementById('backupFileInput').addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                this.restoreFromBackup(e.target.files[0]);
+                e.target.value = '';
+            }
+        });
     },
 
     // 切换选项卡
@@ -159,6 +197,7 @@ const BulkImport = {
         return data.map((row, index) => {
             const result = {
                 index: index + 1,
+                id: this.trimValue(row['任务ID'] || row['id'] || ''),
                 content: this.trimValue(row['任务内容'] || row['content'] || ''),
                 owner: this.trimValue(row['责任人'] || row['owner'] || ''),
                 department: this.trimValue(row['部门'] || row['department'] || ''),
@@ -169,6 +208,25 @@ const BulkImport = {
                 errors: [],
                 warnings: []
             };
+
+            // 检查是否为更新模式（有任务ID）
+            if (result.id) {
+                const existingTask = TaskStorage.getTasks().find(t => t.id === result.id);
+                if (existingTask) {
+                    result.isUpdate = true;
+                    result.originalTask = existingTask;
+
+                    // 检查不可修改字段是否被修改
+                    if (result.content && result.content !== existingTask.content) {
+                        result.warnings.push('⚠️ 任务内容不可修改，将保持原值');
+                        result.content = existingTask.content; // 恢复原值
+                    }
+
+                    // 记录原始进展用于对比
+                    result.originalProgress = existingTask.progress || '';
+                    result.existingHistory = existingTask.progressHistory || [];
+                }
+            }
 
             // 验证必填字段
             if (!result.content) {
@@ -346,27 +404,68 @@ const BulkImport = {
             return;
         }
 
-        // 生成任务数据
-        const tasks = validData.map(item => ({
-            id: this.generateId(),
-            content: item.content,
-            owner: item.owner,
-            department: item.department,
-            source: item.source,
-            deadline: item.deadline,
-            progress: item.progress,
-            status: item.status,
-            createdAt: new Date().toISOString()
-        }));
+        let existingTasks = TaskStorage.getTasks();
+        let updateCount = 0;
+        let newCount = 0;
+        let historyAddedCount = 0;
 
-        // 执行导入
-        let success = false;
+        // 处理每条数据
+        validData.forEach(item => {
+            if (item.id && item.isUpdate) {
+                // 更新已有任务
+                const taskIndex = existingTasks.findIndex(t => t.id === item.id);
+                if (taskIndex !== -1) {
+                    const originalTask = existingTasks[taskIndex];
+
+                    // 只更新允许修改的字段：状态、最新进展
+                    const updates = {
+                        status: item.status,
+                        updatedAt: new Date().toISOString()
+                    };
+
+                    // 如果"最新进展"有变化，添加到进展历史中
+                    if (item.progress && item.progress !== originalTask.progress) {
+                        const progressHistory = originalTask.progressHistory || [];
+                        updates.progressHistory = [
+                            { time: new Date().toISOString(), content: item.progress },
+                            ...progressHistory
+                        ];
+                        updates.progress = item.progress;
+                        historyAddedCount++;
+                    }
+
+                    existingTasks[taskIndex] = {
+                        ...originalTask,
+                        ...updates
+                    };
+                    updateCount++;
+                    return;
+                }
+            }
+
+            // 新增任务
+            existingTasks.push({
+                id: item.id || this.generateId(),
+                content: item.content,
+                owner: item.owner,
+                department: item.department,
+                source: item.source,
+                deadline: item.deadline,
+                progress: item.progress,
+                status: item.status,
+                createdAt: new Date().toISOString()
+            });
+            newCount++;
+        });
+
+        // 如果选择了覆盖模式，只保留导入的数据
         if (overwrite) {
-            success = TaskStorage.saveTasks(tasks);
-        } else {
-            const existingTasks = TaskStorage.getTasks();
-            success = TaskStorage.saveTasks([...existingTasks, ...tasks]);
+            const importedIds = validData.map(item => item.id || this.generateId());
+            existingTasks = existingTasks.filter(t => importedIds.includes(t.id));
         }
+
+        // 保存
+        const success = TaskStorage.saveTasks(existingTasks);
 
         if (!success) {
             alert('导入失败，数据保存出错。请检查浏览器存储设置。');
@@ -374,9 +473,19 @@ const BulkImport = {
         }
 
         // 显示结果
-        const successCount = tasks.length;
-        const errorCount = this.previewData.length - successCount;
-        let message = `成功导入 ${successCount} 条任务`;
+        let message = '';
+        if (updateCount > 0) {
+            message = `成功更新 ${updateCount} 条任务`;
+            if (historyAddedCount > 0) {
+                message += `（新增 ${historyAddedCount} 条进展记录）`;
+            }
+            if (newCount > 0) {
+                message += `，新增 ${newCount} 条任务`;
+            }
+        } else {
+            message = `成功导入 ${newCount} 条任务`;
+        }
+        const errorCount = this.previewData.length - validData.length;
         if (errorCount > 0) {
             message += `，跳过 ${errorCount} 条有错误的数据`;
         }
@@ -386,7 +495,9 @@ const BulkImport = {
         this.clearFile();
         App.tasks = TaskStorage.getTasks();
         App.updateAllTaskStatus();
-        App.render();
+        // 直接调用 renderCore 立即刷新，不使用节流
+        App.renderCore();
+        this.updateExportOwnerList();
 
         // 切换到任务列表
         document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -449,38 +560,259 @@ const BulkImport = {
         XLSX.writeFile(workbook, '任务导入模板.xlsx');
     },
 
-    // 导出数据
-    exportData() {
-        const tasks = TaskStorage.getTasks();
+    // 导出数据（支持单选和多选）
+    exportData(filterOwners = null) {
+        let tasks = TaskStorage.getTasks();
 
         if (tasks.length === 0) {
             alert('暂无数据可导出');
             return;
         }
 
-        // 转换为导出格式
+        // 按责任人筛选（支持单选和多选）
+        if (filterOwners) {
+            const ownerArray = Array.isArray(filterOwners) ? filterOwners : [filterOwners];
+            tasks = tasks.filter(task => {
+                const taskOwners = this.parseOwners(task.owner);
+                return taskOwners.some(o => ownerArray.includes(o));
+            });
+            if (tasks.length === 0) {
+                alert('选中的责任人暂无任务');
+                return;
+            }
+        }
+
+        // 转换为导出格式（包含任务ID用于后续更新）
+        // 字段说明：带*的列可修改，其他列请勿修改
         const exportData = tasks.map(task => ({
-            '任务内容': task.content,
-            '责任人': task.owner,
-            '部门': task.department || '',
-            '来源': task.source || '',
-            '计划完成时间': task.deadline,
-            '最新进展': task.progress || '',
-            '任务状态': task.status,
-            '创建时间': task.createdAt
+            '任务ID（不可修改）': task.id,
+            '*任务内容': task.content,
+            '*责任人': task.owner,
+            '*部门': task.department || '',
+            '*来源': task.source || '',
+            '*计划完成时间': task.deadline,
+            '*最新进展（将添加到历史）': task.progress || '',
+            '*任务状态': task.status,
+            '创建时间（不可修改）': task.createdAt
         }));
 
         const worksheet = XLSX.utils.json_to_sheet(exportData);
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, '任务列表');
 
-        // 生成文件名（包含日期）
+        // 生成文件名（包含日期和责任人）
         const date = new Date().toISOString().split('T')[0];
-        XLSX.writeFile(workbook, `任务导出_${date}.xlsx`);
+        let suffix = '';
+        if (filterOwners) {
+            const ownerArray = Array.isArray(filterOwners) ? filterOwners : [filterOwners];
+            if (ownerArray.length === 1) {
+                suffix = `_${ownerArray[0]}`;
+            } else if (ownerArray.length <= 3) {
+                suffix = `_${ownerArray.join('_')}`;
+            } else {
+                suffix = `_${ownerArray.length}人`;
+            }
+        }
+        XLSX.writeFile(workbook, `任务导出${suffix}_${date}.xlsx`);
+    },
+
+    // 解析责任人（支持逗号分隔）
+    parseOwners(ownerStr) {
+        if (!ownerStr) return ['未分配'];
+        return ownerStr.split(/[,，;；]/)
+            .map(o => o.trim())
+            .filter(o => o.length > 0);
+    },
+
+    // 更新责任人下拉列表
+    updateExportOwnerList() {
+        const tasks = TaskStorage.getTasks();
+        const owners = new Set();
+
+        tasks.forEach(task => {
+            const taskOwners = this.parseOwners(task.owner);
+            taskOwners.forEach(o => owners.add(o));
+        });
+
+        // 更新多选面板
+        const container = document.getElementById('ownerCheckboxes');
+        if (!container) return;
+
+        container.innerHTML = [...owners].sort().map(owner => `
+            <label class="owner-checkbox" data-owner="${this.escapeHtml(owner)}">
+                <input type="checkbox" value="${this.escapeHtml(owner)}">
+                <span>${this.escapeHtml(owner)}</span>
+            </label>
+        `).join('');
+
+        // 绑定点击事件
+        container.querySelectorAll('.owner-checkbox').forEach(label => {
+            label.addEventListener('click', (e) => {
+                e.preventDefault();
+                label.classList.toggle('selected');
+                const checkbox = label.querySelector('input');
+                checkbox.checked = label.classList.contains('selected');
+            });
+        });
+    },
+
+    // 切换责任人选择面板
+    toggleOwnerSelector() {
+        const panel = document.getElementById('ownerSelectorPanel');
+        if (panel.style.display === 'none') {
+            panel.style.display = 'block';
+            this.updateExportOwnerList();
+        } else {
+            panel.style.display = 'none';
+        }
+    },
+
+    // 全选/取消全选
+    selectAllOwners(selected) {
+        const checkboxes = document.querySelectorAll('#ownerCheckboxes .owner-checkbox');
+        checkboxes.forEach(label => {
+            if (selected) {
+                label.classList.add('selected');
+                label.querySelector('input').checked = true;
+            } else {
+                label.classList.remove('selected');
+                label.querySelector('input').checked = false;
+            }
+        });
+    },
+
+    // 获取选中的责任人
+    getSelectedOwners() {
+        const selected = document.querySelectorAll('#ownerCheckboxes .owner-checkbox.selected');
+        return Array.from(selected).map(label => label.dataset.owner);
+    },
+
+    // 导出选中的责任人
+    exportSelectedOwners() {
+        const owners = this.getSelectedOwners();
+        if (owners.length === 0) {
+            alert('请至少选择一个责任人');
+            return;
+        }
+        this.exportData(owners);
+    },
+
+    // 备份数据到本地文件
+    backupData() {
+        const tasks = TaskStorage.getTasks();
+
+        if (tasks.length === 0) {
+            alert('暂无数据可备份');
+            return;
+        }
+
+        // 创建备份数据（包含元信息）
+        const backup = {
+            version: '1.0',
+            backupTime: new Date().toISOString(),
+            taskCount: tasks.length,
+            tasks: tasks
+        };
+
+        // 导出为 JSON 文件
+        const dataStr = JSON.stringify(backup, null, 2);
+        const blob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        const date = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        a.download = `任务备份_${date}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        // 记录备份时间
+        localStorage.setItem('lastBackupTime', new Date().toISOString());
+        this.showBackupInfo('备份成功！已下载 ' + tasks.length + ' 条任务');
+    },
+
+    // 从备份文件恢复数据
+    restoreFromBackup(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const backup = JSON.parse(e.target.result);
+
+                if (!backup.tasks || !Array.isArray(backup.tasks)) {
+                    throw new Error('无效的备份文件格式');
+                }
+
+                const confirmMsg = `确定要从备份恢复 ${backup.taskCount} 条任务吗？\n\n备份时间: ${new Date(backup.backupTime).toLocaleString()}\n\n注意：这将覆盖当前所有数据！`;
+
+                if (!confirm(confirmMsg)) {
+                    return;
+                }
+
+                // 保存恢复的数据
+                TaskStorage.saveTasks(backup.tasks);
+                App.tasks = TaskStorage.getTasks();
+                App.updateAllTaskStatus();
+                // 直接调用 renderCore 立即刷新
+                App.renderCore();
+                this.updateExportOwnerList();
+
+                alert('恢复成功！已恢复 ' + backup.taskCount + ' 条任务');
+            } catch (error) {
+                alert('恢复失败：' + error.message);
+            }
+        };
+        reader.readAsText(file);
+    },
+
+    // 检查自动备份提醒
+    checkAutoBackup() {
+        const lastBackup = localStorage.getItem('lastBackupTime');
+        const backupInfo = document.getElementById('backupInfo');
+
+        if (!lastBackup) {
+            // 从未备份过
+            if (backupInfo && TaskStorage.getTasks().length > 0) {
+                backupInfo.textContent = '💡 提示：您还没有备份过数据，建议点击"备份数据"保存一份';
+                backupInfo.classList.add('show');
+            }
+            return;
+        }
+
+        const lastBackupDate = new Date(lastBackup);
+        const now = new Date();
+        const daysSinceBackup = Math.floor((now - lastBackupDate) / (1000 * 60 * 60 * 24));
+
+        if (daysSinceBackup >= 7 && backupInfo && TaskStorage.getTasks().length > 0) {
+            backupInfo.textContent = `⚠️ 距离上次备份已过 ${daysSinceBackup} 天，建议立即备份数据！`;
+            backupInfo.classList.add('show');
+            backupInfo.style.background = '#FEF3C7';
+            backupInfo.style.color = '#92400E';
+        }
+    },
+
+    // 显示备份信息
+    showBackupInfo(message) {
+        const backupInfo = document.getElementById('backupInfo');
+        if (backupInfo) {
+            backupInfo.textContent = '✅ ' + message;
+            backupInfo.classList.add('show');
+            backupInfo.style.background = '#D1FAE5';
+            backupInfo.style.color = '#065F46';
+            setTimeout(() => {
+                backupInfo.classList.remove('show');
+            }, 5000);
+        }
     }
 };
 
 // 初始化导入功能
 document.addEventListener('DOMContentLoaded', () => {
     BulkImport.init();
+    // 延迟更新责任人列表，确保任务已加载
+    setTimeout(() => {
+        BulkImport.updateExportOwnerList();
+        BulkImport.checkAutoBackup();
+    }, 500);
 });
